@@ -5,6 +5,8 @@ export const NAV = [
   { to: '/cuentas', label: 'Mi dinero', ico: '🏦', tab: true },
   '-',
   { to: '/personales', label: 'Mis gastos', ico: '🛍️' },
+  { to: '/metas', label: 'Mis metas', ico: '🎯' },
+  { to: '/presupuestos', label: 'Mis presupuestos', ico: '🧮' },
   { to: '/ingresos', label: 'Mis ingresos', ico: '💵' },
   { to: '/fijos', label: 'Pagos fijos y deudas', ico: '📌' },
   { to: '/prestamos', label: 'Préstamos familiares', ico: '🤝' },

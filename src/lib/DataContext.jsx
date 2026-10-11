@@ -16,9 +16,10 @@ const TABLES = {
   people: ['created_at', true],
   loans: ['date', false],
   pending_moves: ['created_at', true],
+  category_budgets: ['category_id', true],
 }
 const EMPTY = Object.fromEntries(Object.keys(TABLES).map((k) => [k, []]))
-const DEFAULT_SETTINGS = { longterm_pct: 10, loan_limit: 1200, priority: DEFAULT_PRIORITY }
+const DEFAULT_SETTINGS = { longterm_pct: 10, loan_limit: 1200, priority: DEFAULT_PRIORITY, setup_done: true }
 
 export function DataProvider({ children }) {
   const [data, setData] = useState({ ...EMPTY, settings: DEFAULT_SETTINGS })

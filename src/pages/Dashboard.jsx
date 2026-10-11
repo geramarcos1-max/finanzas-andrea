@@ -33,6 +33,13 @@ export default function Home({ ctx }) {
   if (moves.length) todo.push({ k: 'moves', icon: '🏦', title: 'Haz tus guardaditos en el banco', sub: `${moves.length} ${moves.length === 1 ? 'movimiento pendiente' : 'movimientos pendientes'}`, tone: 'warn', go: ctx.openBank })
   if (T.unassigned > 0.5) todo.push({ k: 'un', icon: '💡', title: 'Tienes dinero sin destino', sub: `${mxn(T.unassigned)} · toca para repartirlo`, tone: 'warn', go: ctx.openAssign })
   if (T.unassigned < -0.5) todo.push({ k: 'neg', icon: '⚠️', title: 'Algo no cuadra con tus cuentas', sub: `Tus apartados suman ${mxn(-T.unassigned)} más que tu dinero real. Revisa tus saldos.`, tone: 'bad', go: () => nav('/cuentas') })
+  D.category_budgets.forEach((b) => {
+    const cat = D.categories.find((c) => c.id === b.category_id)
+    const used = D.transactions.filter((t) => t.kind === 'expense' && t.category_id === b.category_id && t.date.startsWith(MES)).reduce((s, t) => s + Number(t.amount), 0)
+    if (cat && Number(b.amount) > 0 && used > Number(b.amount)) {
+      todo.push({ k: 'bud' + b.category_id, icon: '🧮', title: `Te pasaste en ${cat.name}`, sub: `Gastaste ${mxn(used)} de ${mxn(b.amount)} este mes`, tone: 'bad', go: () => nav('/presupuestos') })
+    }
+  })
   bills.slice(0, 4).forEach((b) => {
     const overdue = b.e.due_day && b.e.due_day < day
     todo.push({ k: b.e.id, icon: overdue ? '🔴' : '🗓️', title: b.e.name, sub: `${mxn(b.need - b.paid)}${b.e.due_day ? ' · ' + dueText(b.e.due_day) : ''}`, tone: overdue ? 'bad' : '', go: () => nav('/pagos') })
@@ -119,7 +126,11 @@ export default function Home({ ctx }) {
         </Link>
       </div>
 
-      <p style={{ marginTop: 24 }}><Link to="/reportes" className="note">📊 Ver reportes y gráficas →</Link></p>
+      <div className="row" style={{ marginTop: 22, gap: 8 }}>
+        <Link to="/metas" className="btn">🎯 Mis metas</Link>
+        <Link to="/presupuestos" className="btn">🧮 Mis presupuestos</Link>
+        <Link to="/reportes" className="btn">📊 Reportes</Link>
+      </div>
     </>
   )
 }

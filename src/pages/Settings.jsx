@@ -172,6 +172,23 @@ function Backup({ D }) {
   )
 }
 
+function Reset({ D }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <h2>Empezar de cero</h2>
+      <p className="note">Borra todas las cuentas, ingresos, gastos, metas, pagos fijos y préstamos, y vuelve a pedir “¿cuánto dinero tienes hoy?”. Se conservan tus reglas, fuentes de ingreso y categorías. <b>No se puede deshacer.</b></p>
+      <button className="btn" style={{ color: 'var(--bad)' }} onClick={() => setOpen(true)}>Borrar todo y empezar de cero</button>
+      {open && <FormModal title="¿Borrar todo?" sub="Escribe la palabra BORRAR para confirmar." onClose={() => setOpen(false)} saveLabel="Sí, borrar todo"
+        fields={[{ key: 'word', label: 'Confirmación', type: 'text', required: true, placeholder: 'BORRAR' }]}
+        onSave={async (v) => {
+          if (v.word.trim().toUpperCase() !== 'BORRAR') return 'Escribe BORRAR tal cual para continuar.'
+          return (await run(supabase.rpc('reset_all_data'), D.reload, 'Listo, todo quedó en ceros')) ? true : 'No se pudo borrar'
+        }} />}
+    </>
+  )
+}
+
 export default function Settings() {
   const D = useData()
   return (
@@ -184,6 +201,7 @@ export default function Settings() {
       <Access />
       <Password />
       <Backup D={D} />
+      <Reset D={D} />
     </>
   )
 }

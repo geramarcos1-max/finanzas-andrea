@@ -15,7 +15,7 @@ const SECTIONS = [
     t: '🚀 Cómo empezar (5 minutos)',
     body: (
       <ol>
-        <li>Ve a <Link to="/cuentas">Mi dinero</Link> y crea tu cuenta de banco con lo que tienes hoy. Si tienes efectivo, crea otra.</li>
+        <li>La primera vez que entras, la app te pregunta cuánto dinero tienes hoy en tu banco y en efectivo. Solo se hace una vez; después puedes ajustarlo en <Link to="/cuentas">Mi dinero</Link>.</li>
         <li>Ve a <Link to="/fijos">Pagos fijos</Link> y agrega lo que pagas cada mes: renta, carro, celular, internet…</li>
         <li>Si tu banco tiene cajitas o apartados, créalos también en <Link to="/cuentas">Mi dinero</Link> como cuenta tipo <i>Ahorro</i>. Lo verás en “Los guardaditos”.</li>
         <li>Toca <b>“Me llegó dinero”</b> en Inicio y sigue los pasos.</li>
@@ -76,6 +76,10 @@ const SECTIONS = [
   {
     t: '🎯 Mis metas',
     body: <p>Una meta es algo que quieres lograr, con un monto y una fecha. Por ejemplo, un viaje de $12,000 para marzo. La app calcula cuánto apartar cada mes y lo incluye cuando repartes tu dinero.</p>,
+  },
+  {
+    t: '🧮 Mis presupuestos',
+    body: <p>Un presupuesto es lo máximo que quieres gastar al mes en algo, por ejemplo en café o en salidas. Los pones en <Link to="/presupuestos">Mis presupuestos</Link>. Si te pasas, la app te avisa en Inicio.</p>,
   },
   {
     t: '🤝 Préstamos familiares',

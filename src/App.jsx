@@ -14,6 +14,8 @@ import Payments from './pages/Payments'
 import Fixed from './pages/Fixed'
 import Savings from './pages/Savings'
 import Ahorros from './pages/Ahorros'
+import Budgets from './pages/Budgets'
+import Setup from './Setup'
 import Goals from './pages/Goals'
 import Loans from './pages/Loans'
 import Accounts from './pages/Accounts'
@@ -28,6 +30,9 @@ function Shell({ session }) {
 
   if (D.loading) return <div className="auth"><p className="note">Cargando…</p></div>
   if (D.error) return <div className="auth"><div className="modal"><h3>No pude cargar los datos</h3><p className="note">{D.error}</p><button className="btn" onClick={D.reload}>Reintentar</button></div></div>
+
+  // Primera vez: configurar cuánto dinero tiene (ocurre una sola vez)
+  if (!D.settings.setup_done) return <Setup email={session.user.email} onDone={(goAssign) => goAssign && setFlow('assign')} />
 
   const ctx = {
     openIncome: () => setFlow('income'), openAssign: () => setFlow('assign'), openExpense: () => setFlow('expense'),
@@ -60,6 +65,7 @@ function Shell({ session }) {
           <Route path="/emergencia" element={<Savings kind="emergency" />} />
           <Route path="/largo-plazo" element={<Savings kind="longterm" />} />
           <Route path="/metas" element={<Goals />} />
+          <Route path="/presupuestos" element={<Budgets />} />
           <Route path="/prestamos" element={<Loans />} />
           <Route path="/reportes" element={<Reports ctx={ctx} />} />
           <Route path="/guia" element={<Guide />} />

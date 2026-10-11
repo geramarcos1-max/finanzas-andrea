@@ -7,11 +7,13 @@ import { catEmoji } from '../lib/friendly'
 import { mxn, mxn0, today } from '../lib/format'
 import { Bar, Empty, Kpi, MoneyInput, PageHead, run, toNum, toast } from '../ui'
 
-function Row({ cat, budget, spent, onSave }) {
-  const [v, setV] = useState(budget ? String(budget) : '')
+function Row({ cat, budget, spent, draft, room, onDraft, onCommit }) {
+  const value = draft !== undefined ? draft : budget ? String(budget) : ''
+  const typed = toNum(value)
   const has = budget > 0
   const ratio = has ? spent / budget : 0
   const tone = ratio > 1 ? 'bad' : ratio > 0.8 ? 'warn' : 'good'
+  const over = r2(typed - room)   // cuánto se pasa esta categoría de lo que aún se puede repartir
   return (
     <div className="item" style={{ flexWrap: 'wrap' }}>
       <span style={{ fontSize: 26, width: 34, textAlign: 'center' }}>{catEmoji(cat.name)}</span>
@@ -21,14 +23,12 @@ function Row({ cat, budget, spent, onSave }) {
           Llevas {mxn0(spent)}{has && (budget - spent >= 0 ? ` · te quedan ${mxn0(budget - spent)}` : ` · te pasaste por ${mxn0(spent - budget)}`)}
         </div>
         {has && <div style={{ marginTop: 6 }}><Bar value={spent} max={budget} tone={tone} /></div>}
+        {over > 0 && <div className="note bad-t" role="alert" style={{ marginTop: 4 }}>⚠️ Te pasas por {mxn(over)}. Aquí puedes poner máximo {mxn(Math.max(0, room))}.</div>}
       </div>
       <div style={{ width: 140 }}>
-        <MoneyInput value={v} onChange={setV} placeholder="Sin límite"
-          onBlur={async () => {
-            if (toNum(v) === (budget || 0)) return
-            const ok = await onSave(cat.id, toNum(v))
-            if (ok === false) setV(budget ? String(budget) : '')
-          }} />
+        <MoneyInput value={value} onChange={(v) => onDraft(cat.id, v)} placeholder="Sin límite" aria-invalid={over > 0}
+          style={over > 0 ? { borderColor: 'var(--bad)', color: 'var(--bad)' } : undefined}
+          onBlur={() => onCommit(cat.id)} />
       </div>
     </div>
   )
@@ -39,6 +39,7 @@ function Row({ cat, budget, spent, onSave }) {
 export default function Budgets() {
   const D = useData()
   const MES = today().slice(0, 7)
+  const [drafts, setDrafts] = useState({})   // lo que se está escribiendo y aún no se guarda
   const cats = D.categories.filter((c) => !c.archived && c.kind === 'expense')
   const personal = D.envelopes.find((e) => e.kind === 'personal')
   const budgetOf = (id) => Number(D.category_budgets.find((b) => b.category_id === id)?.amount) || 0
@@ -46,19 +47,28 @@ export default function Budgets() {
 
   const total = personal ? allocatedIn(D, personal.id, MES) : 0       // presupuesto del mes
   const spent = personal ? spentIn(D, personal.id, MES) : 0          // gastado en el mes
-  const assigned = r2(cats.reduce((s, c) => s + budgetOf(c.id), 0))  // repartido en categorías
+  const savedSum = r2(cats.reduce((s, c) => s + budgetOf(c.id), 0))  // ya guardado
+  const liveOf = (c) => (drafts[c.id] !== undefined ? toNum(drafts[c.id]) : budgetOf(c.id))
+  const assigned = r2(cats.reduce((s, c) => s + liveOf(c), 0))       // repartido, incluyendo lo que se está escribiendo
   const free = r2(total - assigned)
+  const hasDraft = Object.keys(drafts).length > 0
 
-  async function save(categoryId, amount) {
-    const others = r2(assigned - budgetOf(categoryId))
+  const setDraft = (id, v) => setDrafts((d) => ({ ...d, [id]: v }))
+  const clearDraft = (id) => setDrafts((d) => { const n = { ...d }; delete n[id]; return n })
+
+  async function commit(categoryId) {
+    if (drafts[categoryId] === undefined) return
+    const amount = toNum(drafts[categoryId])
+    if (amount === budgetOf(categoryId)) return clearDraft(categoryId)
+    const others = r2(savedSum - budgetOf(categoryId))
     if (cents(amount + others) > cents(total)) {
-      toast(`⚠️ Solo puedes repartir ${mxn(Math.max(0, r2(total - others)))} en esta categoría (tu presupuesto del mes es ${mxn(total)}).`)
-      return false
+      toast(`⚠️ No se guardó: te pasas del presupuesto. Aquí puedes poner máximo ${mxn(Math.max(0, r2(total - others)))}.`)
+      return   // se conserva lo escrito, en rojo, para que lo corrija
     }
     const q = amount > 0
       ? supabase.from('category_budgets').upsert({ category_id: categoryId, amount }, { onConflict: 'category_id' })
       : supabase.from('category_budgets').delete().eq('category_id', categoryId)
-    return run(q, D.reload, amount > 0 ? 'Presupuesto guardado' : 'Presupuesto quitado')
+    if (await run(q, D.reload, amount > 0 ? 'Presupuesto guardado' : 'Presupuesto quitado')) clearDraft(categoryId)
   }
 
   return (
@@ -67,7 +77,7 @@ export default function Budgets() {
       <div className="kpis">
         <Kpi label="Tu presupuesto del mes" value={mxn0(total)} hint="Lo que separaste para gastar" />
         <Kpi label="Repartido en categorías" value={mxn0(assigned)} tone={free < 0 ? 'bad' : ''}
-          hint={free > 0 ? `Te faltan ${mxn0(free)} por repartir` : free < 0 ? `Te pasaste por ${mxn0(-free)}` : total > 0 ? 'Todo repartido ✓' : null} />
+          hint={free > 0 ? `Te faltan ${mxn0(free)} por repartir` : free < 0 ? `Te pasas por ${mxn0(-free)}` : total > 0 ? 'Todo repartido ✓' : null} />
         <Kpi label="Gastado este mes" value={mxn0(spent)} tone={total && spent > total ? 'bad' : ''}
           hint={total ? (spent <= total ? `Te quedan ${mxn0(total - spent)} del presupuesto` : `Te pasaste por ${mxn0(spent - total)}`) : null} />
       </div>
@@ -79,7 +89,10 @@ export default function Budgets() {
         </div>
       )}
       {free < 0 && total > 0 && (
-        <div className="callout bad">Tus límites suman {mxn(assigned)}, que es más que tu presupuesto de {mxn(total)}. Baja alguno para que cuadre.</div>
+        <div className="callout bad" role="alert" style={{ position: 'sticky', top: 8, zIndex: 5 }}>
+          🚨 <b>Te estás pasando de tu presupuesto.</b> Tus límites suman {mxn(assigned)} y tu presupuesto del mes es {mxn(total)}: te pasas por <b>{mxn(-free)}</b>.
+          {hasDraft ? ' Mientras no cuadre, los cambios no se guardan. Baja algún límite.' : ' Baja algún límite para que cuadre.'}
+        </div>
       )}
 
       <h2>Por categoría</h2>
@@ -87,7 +100,8 @@ export default function Budgets() {
         {total === 0 && <Link to="/personales">Ver mis gastos</Link>}</p>
       <div className="list">
         {cats.length === 0 ? <Empty>No hay categorías.</Empty> : cats.map((c) => (
-          <Row key={c.id + budgetOf(c.id)} cat={c} budget={budgetOf(c.id)} spent={spentOf(c.id)} onSave={save} />
+          <Row key={c.id} cat={c} budget={budgetOf(c.id)} spent={spentOf(c.id)} draft={drafts[c.id]}
+            room={r2(total - (assigned - liveOf(c)))} onDraft={setDraft} onCommit={commit} />
         ))}
       </div>
     </>

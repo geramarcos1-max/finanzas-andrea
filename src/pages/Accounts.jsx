@@ -70,10 +70,10 @@ export default function Accounts({ ctx }) {
 
       {modal && <FormModal title={modal.editing ? 'Editar cuenta' : 'Nueva cuenta'} fields={[
           fields[0], fields[1],
-          { ...fields[2], label: modal.editing ? 'Saldo de hoy (corrige si no coincide con el banco)' : 'Saldo de hoy', type: 'text', placeholder: '0.00' },
+          { ...fields[2], label: modal.editing ? 'Saldo de hoy (corrige si no coincide con el banco)' : 'Saldo de hoy', type: 'money', signed: true, placeholder: '0.00' },
         ]} onClose={() => setModal(null)}
         initial={modal.editing ? { name: modal.editing.name, type: modal.editing.type, initial_balance: String(T.bal[modal.editing.id] ?? 0) } : { type: 'bank', initial_balance: '' }}
-        onSave={(v) => { const n = Number(String(v.initial_balance).replace(/[^0-9.\-]/g, '')) || 0; return save(modal.editing, { ...v, initial_balance: n }) }} />}
+        onSave={(v) => save(modal.editing, v)} />}
 
       {transfer && <FormModal title="Transferir entre cuentas" sub="El dinero cambia de cuenta; tus sobres no se mueven." onClose={() => setTransfer(false)}
         fields={[

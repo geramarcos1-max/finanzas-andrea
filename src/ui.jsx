@@ -89,27 +89,35 @@ export function Modal({ title, sub, onClose, children, footer }) {
 // ---------- campos ----------
 const fmtRaw = (raw) => {
   if (raw === '' || raw == null) return ''
-  const [i, d] = String(raw).split('.')
-  return (i ? Number(i).toLocaleString('en-US') : '0') + (d !== undefined ? '.' + d : '')
+  const s = String(raw)
+  const sign = s.startsWith('-') ? '-' : ''
+  const [i, d] = s.replace('-', '').split('.')
+  return sign + (i ? Number(i).toLocaleString('en-US') : sign ? '' : '0') + (d !== undefined ? '.' + d : '')
 }
-export function MoneyInput({ value, onChange, ...rest }) {
+// Campo de dinero con comas de miles (1,000 · 10,000 · 100,000). `signed` permite negativos.
+export function MoneyInput({ value, onChange, signed, ...rest }) {
   return (
     <input
-      inputMode="decimal"
+      inputMode={signed ? 'text' : 'decimal'}
       autoComplete="off"
       {...rest}
       value={fmtRaw(value)}
       onChange={(e) => {
+        const neg = signed && e.target.value.trim().startsWith('-')
         let raw = e.target.value.replace(/[^0-9.]/g, '')
         const p = raw.split('.')
         if (p.length > 2) raw = p[0] + '.' + p.slice(1).join('')
         if (p[1] !== undefined) raw = p[0] + '.' + p[1].slice(0, 2)
-        onChange(raw)
+        onChange((neg ? '-' : '') + raw)
       }}
     />
   )
 }
 export const toNum = (raw) => Number(String(raw ?? '').replace(/[^0-9.]/g, '')) || 0
+export const toSigned = (raw) => {
+  const s = String(raw ?? '')
+  return (s.trim().startsWith('-') ? -1 : 1) * toNum(s)
+}
 
 export function Field({ label, children }) {
   return <label className="f">{label}{children}</label>
@@ -132,10 +140,10 @@ export function FormModal({ title, sub, fields, initial = {}, onSave, onClose, o
     for (const f of fields) {
       if (f.show && !f.show(v)) continue
       if (f.required && (v[f.key] === '' || v[f.key] == null)) return setErr(`Falta: ${f.label}`)
-      if (f.required && f.type === 'money' && !(toNum(v[f.key]) > 0)) return setErr(`${f.label} debe ser mayor a 0`)
+      if (f.required && f.type === 'money' && !f.signed && !(toNum(v[f.key]) > 0)) return setErr(`${f.label} debe ser mayor a 0`)
     }
     const out = {}
-    fields.forEach((f) => { if (!f.show || f.show(v)) out[f.key] = f.type === 'money' ? toNum(v[f.key]) : v[f.key] })
+    fields.forEach((f) => { if (!f.show || f.show(v)) out[f.key] = f.type === 'money' ? (f.signed ? toSigned(v[f.key]) : toNum(v[f.key])) : v[f.key] })
     setBusy(true); setErr('')
     const res = await onSave(out)
     setBusy(false)
@@ -154,7 +162,7 @@ export function FormModal({ title, sub, fields, initial = {}, onSave, onClose, o
                   {f.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               ) : f.type === 'money' ? (
-                <MoneyInput value={v[f.key]} onChange={set(f.key)} placeholder={f.placeholder || '0'} />
+                <MoneyInput value={v[f.key]} onChange={set(f.key)} signed={f.signed} placeholder={f.placeholder || '0'} />
               ) : (
                 <input type={f.type === 'date' ? 'date' : f.type === 'number' ? 'number' : 'text'} value={v[f.key]}
                   min={f.min} max={f.max} placeholder={f.placeholder} onChange={(e) => set(f.key)(e.target.value)} />

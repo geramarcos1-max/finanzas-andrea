@@ -252,6 +252,8 @@ export function IncomeFlow({ mode = 'income', onClose }) {
   const [picked, setPicked] = useState({})
   const [personal, setPersonal] = useState('')
   const [sav, setSav] = useState('')
+  const [inv, setInv] = useState('')
+  const [goalAdd, setGoalAdd] = useState({})
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [incomeId, setIncomeId] = useState(null)
@@ -289,7 +291,21 @@ export function IncomeFlow({ mode = 'income', onClose }) {
   const persN = toNum(personal)
   const rest = r2(left - persN)
   const savN = toNum(sav)
-  const invN = r2(rest - savN)
+  const invN = toNum(inv)
+  const goalAddN = (gid) => toNum(goalAdd[gid])
+  const goalAddTotal = r2(Object.keys(goalAdd).reduce((s, gid) => s + goalAddN(gid), 0))
+  const destTotal = r2(savN + invN + goalAddTotal)
+  const toPlace = r2(rest - destTotal)
+
+  // Metas disponibles para abonar con lo que sobra (se descuenta lo ya elegido en el paso 2)
+  const goalsLeft = goals.map((x) => {
+    const already = toNum(picked['goal:' + x.e.id]?.on ? picked['goal:' + x.e.id].amount : 0)
+    return { ...x, suggest: Math.max(0, r2(x.need - already)) }
+  })
+  // Total por meta = lo elegido en el paso 2 + lo que se agrega con lo que sobra
+  const goalTotals = {}
+  chosen.filter((it) => it.group === 'goal').forEach((it) => { goalTotals[it.id] = r2((goalTotals[it.id] || 0) + toNum(val(it).amount)) })
+  Object.keys(goalAdd).forEach((gid) => { if (goalAddN(gid) > 0) goalTotals[gid] = r2((goalTotals[gid] || 0) + goalAddN(gid)) })
 
   if (step === 'form' && !accounts.length) {
     return (
@@ -314,15 +330,24 @@ export function IncomeFlow({ mode = 'income', onClose }) {
     const bad = chosen.find((it) => it.group === 'loan' && cents(toNum(val(it).amount)) > cents(it.room))
     if (bad) return setErr(`${bad.title}: solo puedes prestar ${mxn(bad.room)} este mes.`)
     setErr('')
-    if (left <= 0) { setPersonal(''); setSav(''); return setStep('resumen') }
+    if (left <= 0) { setPersonal(''); setSav(''); setInv(''); setGoalAdd({}); return setStep('resumen') }
     setStep('personal')
   }
 
   function afterPersonal() {
     if (cents(persN) > cents(left)) return setErr(`Solo te quedan ${mxn(left)}.`)
     setErr('')
-    if (rest <= 0) { setSav(''); return setStep('resumen') }
-    setSav(String(rest)); setStep('ahorro')
+    if (rest <= 0) { setSav(''); setInv(''); setGoalAdd({}); return setStep('resumen') }
+    setSav(String(rest)); setInv(''); setGoalAdd({}); setStep('ahorro')
+  }
+
+  // Atajos de la pantalla "lo que sobra"
+  const putAll = (s, i, g = {}) => { setSav(s ? String(s) : ''); setInv(i ? String(i) : ''); setGoalAdd(g) }
+  function useSuggested() {
+    let room = rest
+    const g = {}
+    goalsLeft.forEach((x) => { const v = Math.min(room, x.suggest); if (v > 0) { g[x.e.id] = String(v); room = r2(room - v) } })
+    putAll(room, 0, g)
   }
 
   async function confirm() {
@@ -331,7 +356,7 @@ export function IncomeFlow({ mode = 'income', onClose }) {
     const { data, error } = await supabase.rpc('register_flow', {
       p_mode: mode, p_date: f.date, p_source: assign ? null : f.source || null, p_amount: amount, p_account: f.account,
       p_payments: pick('pay').map((it) => ({ envelope_id: it.id, amount: toNum(val(it).amount) })),
-      p_goals: pick('goal').map((it) => ({ envelope_id: it.id, amount: toNum(val(it).amount) })),
+      p_goals: Object.entries(goalTotals).filter(([, v]) => v > 0).map(([gid, v]) => ({ envelope_id: gid, amount: v })),
       p_loans: pick('loan').map((it) => ({ person_id: it.id, amount: toNum(val(it).amount) })),
       p_personal: persN, p_savings: rest > 0 ? savN : 0, p_investment: rest > 0 ? invN : 0,
     })
@@ -437,24 +462,40 @@ export function IncomeFlow({ mode = 'income', onClose }) {
   // ----- 4. Ahorro e inversión -----
   if (step === 'ahorro') {
     return (
-      <Modal onClose={onClose} title="Lo que sobra: ¿ahorro o inversión?"
-        sub={`Te sobran ${mxn(rest)}. Decide cuánto guardas y cuánto inviertes.`}
-        footer={<><button className="btn" onClick={() => setStep('personal')}>Atrás</button><button className="btn pri big-action" disabled={invN < 0 || savN < 0} onClick={() => setStep('resumen')}>Continuar</button></>}>
+      <Modal onClose={onClose} title="Lo que sobra: ¿ahorro, inversión o metas?"
+        sub={`Te sobran ${mxn(rest)}. Decide cuánto guardas, cuánto inviertes y cuánto abonas a tus metas.`}
+        footer={<><button className="btn" onClick={() => setStep('personal')}>Atrás</button><button className="btn pri big-action" disabled={cents(destTotal) !== cents(rest)} onClick={() => setStep('resumen')}>Continuar</button></>}>
         <Dots n={4} />
         <div className="chips" style={{ marginBottom: 10 }}>
-          <button type="button" className="chipbtn" onClick={() => setSav(String(rest))}>Todo a ahorro</button>
-          <button type="button" className="chipbtn" onClick={() => setSav(String(r2(rest / 2)))}>Mitad y mitad</button>
-          <button type="button" className="chipbtn" onClick={() => setSav('0')}>Todo a inversión</button>
+          <button type="button" className="chipbtn" onClick={() => putAll(rest, 0)}>Todo a ahorro</button>
+          <button type="button" className="chipbtn" onClick={() => putAll(r2(rest / 2), r2(rest - r2(rest / 2)))}>Mitad y mitad</button>
+          <button type="button" className="chipbtn" onClick={() => putAll(0, rest)}>Todo a inversión</button>
+          {goalsLeft.some((x) => x.suggest > 0) && <button type="button" className="chipbtn" onClick={useSuggested}>Lo sugerido a mis metas</button>}
         </div>
         <div className="form">
           <label className="f">🌱 Ahorro
-            <MoneyInput value={sav} onChange={(v) => setSav(toNum(v) > rest ? String(rest) : v)} placeholder="$ 0" />
+            <MoneyInput value={sav} onChange={setSav} placeholder="$ 0" />
           </label>
           <label className="f">📈 Inversión
-            <MoneyInput value={invN > 0 ? String(invN) : ''} onChange={(v) => setSav(String(r2(rest - Math.min(toNum(v), rest))))} placeholder="$ 0" />
+            <MoneyInput value={inv} onChange={setInv} placeholder="$ 0" />
           </label>
         </div>
-        <div className="callout good" style={{ marginTop: 14 }}>✅ Ahorro {mxn(savN)} + Inversión {mxn(Math.max(0, invN))} = {mxn(rest)}</div>
+        {goalsLeft.length > 0 && (
+          <>
+            <div className="grp" style={{ marginTop: 14 }}>Abonar a mis metas</div>
+            <div className="form" style={{ marginTop: 8 }}>
+              {goalsLeft.map((x) => (
+                <label className="f" key={x.e.id}>🎯 {x.e.name}
+                  <MoneyInput value={goalAdd[x.e.id] || ''} onChange={(v) => setGoalAdd((g) => ({ ...g, [x.e.id]: v }))} placeholder={x.suggest > 0 ? `Sugerido ${mxn0(x.suggest)}` : '$ 0'} />
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+        {goalsLeft.length === 0 && <p className="note" style={{ marginTop: 10 }}>¿Tienes algo que quieres lograr (un viaje, una compra)? Crea una meta en <b>Mis metas</b> y podrás abonarle aquí.</p>}
+        <div className={`callout ${toPlace === 0 ? 'good' : toPlace > 0 ? 'warn' : 'bad'}`} style={{ marginTop: 14 }}>
+          {toPlace === 0 ? `✅ Repartiste todo: ${mxn(rest)}` : toPlace > 0 ? `Te faltan ${mxn(toPlace)} por repartir (de ${mxn(rest)}).` : `Te pasaste por ${mxn(-toPlace)}.`}
+        </div>
       </Modal>
     )
   }
@@ -462,7 +503,8 @@ export function IncomeFlow({ mode = 'income', onClose }) {
   // ----- 5. Resumen -----
   if (step === 'resumen') {
     const L = ({ label, v, tone }) => <div className="propline"><div className="n">{label}</div><b className={`num ${tone || ''}`}>{mxn(v)}</b></div>
-    const payItems = chosen.filter((i) => i.group === 'pay'), goalItems = chosen.filter((i) => i.group === 'goal'), loanItems = chosen.filter((i) => i.group === 'loan')
+    const payItems = chosen.filter((i) => i.group === 'pay'), loanItems = chosen.filter((i) => i.group === 'loan')
+    const goalLines = Object.entries(goalTotals).filter(([, v]) => v > 0).map(([gid, v]) => ({ gid, v, name: D.envelopes.find((e) => e.id === gid)?.name || 'Meta' }))
     return (
       <Modal onClose={onClose} title="Revisa y confirma"
         sub={`De tus ${mxn(amount)}${assign ? '' : ` que llegaron a ${accName}`}, esto es lo que va a pasar:`}
@@ -470,12 +512,12 @@ export function IncomeFlow({ mode = 'income', onClose }) {
           <button className="btn pri big-action" disabled={busy} onClick={confirm}>Confirmar</button></>}>
         <Dots n={5} />
         {payItems.length > 0 && <><div className="grp">Pagos que se marcan como pagados</div>{payItems.map((i) => <L key={i.key} label={i.title} v={toNum(val(i).amount)} />)}</>}
-        {goalItems.length > 0 && <><div className="grp">Abonos a metas</div>{goalItems.map((i) => <L key={i.key} label={i.title} v={toNum(val(i).amount)} />)}</>}
+        {goalLines.length > 0 && <><div className="grp">Abonos a metas</div>{goalLines.map((g) => <L key={g.gid} label={`🎯 ${g.name}`} v={g.v} />)}</>}
         {loanItems.length > 0 && <><div className="grp">Préstamo familiar</div>{loanItems.map((i) => <L key={i.key} label={i.title} v={toNum(val(i).amount)} />)}</>}
         <div className="grp">Para ti</div>
         <L label="🛍️ Para gastar este mes" v={persN} />
-        {rest > 0 && <L label="🌱 Ahorro" v={savN} />}
-        {rest > 0 && <L label="📈 Inversión" v={Math.max(0, invN)} />}
+        {rest > 0 && savN > 0 && <L label="🌱 Ahorro" v={savN} />}
+        {rest > 0 && invN > 0 && <L label="📈 Inversión" v={invN} />}
         <div className="callout good" style={{ marginTop: 12 }}>✅ Todo tu dinero tiene destino.</div>
       </Modal>
     )

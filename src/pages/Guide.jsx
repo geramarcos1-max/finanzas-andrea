@@ -30,7 +30,7 @@ const SECTIONS = [
         <li><b>Paso 1:</b> escribe cuánto fue y de quién.</li>
         <li><b>Paso 2:</b> marca los pagos que vas a hacer con ese dinero (carro, renta, abonos a tus metas, préstamo familiar). Los que marques se registran como pagados.</li>
         <li><b>Paso 3:</b> la app te dice cuánto te queda. Escribe cuánto quieres tener para tus gastos personales de este mes.</li>
-        <li><b>Paso 4:</b> lo que sobra lo repartes entre ahorro e inversión.</li>
+        <li><b>Paso 4:</b> lo que sobra lo repartes entre ahorro, inversión y tus metas. Hasta que todo tenga destino puedes continuar.</li>
         <li><b>Paso 5:</b> revisa el resumen y confirma.</li>
       </ol>
     ),

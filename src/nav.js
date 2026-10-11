@@ -1,0 +1,15 @@
+export const NAV = [
+  { to: '/', label: 'Resumen', ico: '🏠' },
+  { to: '/ingresos', label: 'Ingresos', ico: '💵' },
+  { to: '/personales', label: 'Gastos personales', short: 'Gastos', ico: '🛍️' },
+  { to: '/pagos', label: 'Pagos del mes', short: 'Pagos', ico: '✅' },
+  { to: '/fijos', label: 'Gastos fijos y deudas', ico: '📌' },
+  '-',
+  { to: '/emergencia', label: 'Fondo de emergencia', ico: '🛟' },
+  { to: '/metas', label: 'Ahorros con meta', ico: '🎯' },
+  { to: '/largo-plazo', label: 'Ahorro a largo plazo', ico: '🌱' },
+  { to: '/prestamos', label: 'Préstamos familiares', ico: '🤝' },
+  '-',
+  { to: '/cuentas', label: 'Cuentas y patrimonio', ico: '🏦' },
+  { to: '/config', label: 'Configuración', ico: '⚙️' },
+]

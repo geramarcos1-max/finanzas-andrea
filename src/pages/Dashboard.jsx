@@ -1,256 +1,246 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Bar as RBar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
-import { supabase } from '../lib/supabase'
-import { computeNetWorth, useData } from '../lib/DataContext'
+import { useData } from '../lib/DataContext'
+import { allocatedIn, debtInfo, netWorth, neededFor, envelopeStats, r2, spentIn, totals } from '../lib/calc'
 import {
-  CHART_COLORS, PERIODS, addDays, diffDays, fmtDate, fmtMonthShort, iso, monthFirst, monthKey,
-  mxn, mxn0, parse, pct, periodRange, previousRange, today,
+  PERIODS, addDays, diffDays, fmtDate, fmtMonthShort, iso, monthFirst, monthKey, mxn, mxn0, pct, periodRange, previousRange, today,
 } from '../lib/format'
-import { Bar as Progress, Empty, Kpi, pctChange } from '../ui'
+import { Bar, Empty, Group, Item, Kpi, PageHead, Pill, pctChange } from '../ui'
 
-const sumKind = (arr, kind) => arr.filter((t) => t.kind === kind).reduce((s, t) => s + Number(t.amount), 0)
+const COLORS = ['#6B5E4E', '#4F7A5A', '#A7742B', '#8E7BA8', '#A6493F', '#5E8CA6', '#C9B9A3', '#B58BA0', '#7C9A8B', '#8A857E']
+const sumA = (arr) => arr.reduce((s, x) => s + Number(x.amount), 0)
 
-export default function Dashboard() {
+function Delta({ cur, prev, invert }) {
+  const d = pctChange(cur, prev)
+  if (d === null || !isFinite(d)) return null
+  const good = invert ? d <= 0 : d >= 0
+  return <span className={good ? 'good-t' : 'bad-t'}>{d >= 0 ? '▲' : '▼'} {Math.abs(d).toFixed(0)}% vs. período anterior</span>
+}
+
+export default function Dashboard({ ctx }) {
   const D = useData()
+  const nav = useNavigate()
   const [period, setPeriod] = useState('month')
   const [custom, setCustom] = useState({ from: monthFirst(), to: today() })
   const [acc, setAcc] = useState('')
-  const [cat, setCat] = useState('')
   const [compare, setCompare] = useState(true)
 
+  const t0 = today()
+  const MES = t0.slice(0, 7)
   const range = periodRange(period, custom)
   const prev = previousRange(range)
-  const t0 = today()
+  const T = totals(D)
+  const NW = netWorth(D)
 
   const m = useMemo(() => {
-    const base = D.transactions.filter((t) => t.kind !== 'transfer' && (!acc || t.account_id === acc) && (!cat || t.category_id === cat))
-    const inR = (t, r) => t.date >= r.from && t.date <= r.to
-    const cur = base.filter((t) => inR(t, range))
-    const pre = base.filter((t) => inR(t, prev))
+    const inR = (x, r) => x.date >= r.from && x.date <= r.to
+    const incs = D.incomes.filter((i) => i.type === 'income' && (!acc || i.account_id === acc))
+    const exps = D.transactions.filter((x) => x.kind === 'expense' && (!acc || x.account_id === acc))
+    const cur = { i: incs.filter((x) => inR(x, range)), e: exps.filter((x) => inR(x, range)) }
+    const pre = { i: incs.filter((x) => inR(x, prev)), e: exps.filter((x) => inR(x, prev)) }
     const lastDay = range.to < t0 ? range.to : t0
     const days = Math.max(1, diffDays(range.from, lastDay) + 1)
     const prevDays = Math.max(1, diffDays(prev.from, prev.to) + 1)
-    const inc = sumKind(cur, 'income'), exp = sumKind(cur, 'expense')
-    const pInc = sumKind(pre, 'income'), pExp = sumKind(pre, 'expense')
 
-    // acumulado diario de gasto
-    const len = Math.max(1, diffDays(range.from, lastDay) + 1)
     const line = []
     let a = 0, b = 0
-    for (let i = 0; i < len; i++) {
+    for (let i = 0; i < days; i++) {
       const d1 = addDays(range.from, i), d2 = addDays(prev.from, i)
-      a += cur.filter((t) => t.kind === 'expense' && t.date === d1).reduce((s, t) => s + Number(t.amount), 0)
-      b += pre.filter((t) => t.kind === 'expense' && t.date === d2).reduce((s, t) => s + Number(t.amount), 0)
+      a += sumA(cur.e.filter((x) => x.date === d1))
+      b += sumA(pre.e.filter((x) => x.date === d2))
       line.push({ dia: i + 1, Actual: a, Anterior: b })
     }
 
-    // últimos 6 meses
-    const months = []
     const now = new Date()
-    for (let i = 5; i >= 0; i--) months.push(iso(new Date(now.getFullYear(), now.getMonth() - i, 1)).slice(0, 7))
-    const monthly = months.map((k) => {
-      const ts = base.filter((t) => monthKey(t.date) === k)
-      return { mes: fmtMonthShort(k), Ingresos: sumKind(ts, 'income'), Gastos: sumKind(ts, 'expense') }
-    })
+    const monthly = []
+    for (let i = 5; i >= 0; i--) {
+      const k = iso(new Date(now.getFullYear(), now.getMonth() - i, 1)).slice(0, 7)
+      monthly.push({ mes: fmtMonthShort(k), Ingresos: sumA(incs.filter((x) => monthKey(x.date) === k)), Gastos: sumA(exps.filter((x) => monthKey(x.date) === k)) })
+    }
 
-    // gasto por categoría
     const byCat = {}
-    cur.filter((t) => t.kind === 'expense').forEach((t) => {
-      const c = D.categories.find((x) => x.id === t.category_id)
-      const name = c ? c.name : 'Sin categoría'
-      byCat[name] = (byCat[name] || 0) + Number(t.amount)
+    cur.e.forEach((x) => {
+      const c = D.categories.find((k) => k.id === x.category_id)
+      const e = D.envelopes.find((k) => k.id === x.envelope_id)
+      const name = c ? c.name : e ? e.name : 'Sin categoría'
+      byCat[name] = (byCat[name] || 0) + Number(x.amount)
     })
     const cats = Object.entries(byCat).map(([name, value]) => ({ name, value })).sort((x, y) => y.value - x.value)
+    return { inc: sumA(cur.i), exp: sumA(cur.e), pInc: sumA(pre.i), pExp: sumA(pre.e), days, prevDays, line, monthly, cats }
+  }, [D.incomes, D.transactions, D.categories, D.envelopes, acc, range.from, range.to])
 
-    return { inc, exp, pInc, pExp, days, prevDays, line, monthly, cats }
-  }, [D.transactions, D.categories, acc, cat, range.from, range.to])
-
-  const nw = computeNetWorth(D)
   const savings = m.inc - m.exp
-  const savingsRate = m.inc > 0 ? (savings / m.inc) * 100 : 0
 
-  // presupuesto del mes en curso
-  const mk = monthFirst()
-  const budgetRows = D.budgets
-    .filter((b) => b.month === mk)
-    .map((b) => {
-      const c = D.categories.find((x) => x.id === b.category_id)
-      const spent = D.transactions
-        .filter((t) => t.kind === 'expense' && t.category_id === b.category_id && monthKey(t.date) === mk.slice(0, 7))
-        .reduce((s, t) => s + Number(t.amount), 0)
-      return { id: b.id, name: c?.name || '—', budget: Number(b.amount), spent }
-    })
-    .sort((x, y) => y.spent / (y.budget || 1) - x.spent / (x.budget || 1))
-    .slice(0, 6)
+  // Estado del mes en curso
+  const active = D.envelopes.filter((e) => !e.archived)
+  const personal = active.find((e) => e.kind === 'personal')
+  const emergency = active.find((e) => e.kind === 'emergency')
+  const longterm = active.find((e) => e.kind === 'longterm')
+  const bills = active.filter((e) => e.kind === 'fixed' || e.kind === 'debt')
+  const paidCount = bills.filter((e) => spentIn(D, e.id, MES) >= (Number(e.monthly_amount) || 0) - 0.005 && Number(e.monthly_amount) > 0).length
+  const goals = active.filter((e) => e.kind === 'goal')
+  const debts = bills.filter((e) => e.kind === 'debt')
 
-  // recurrentes pendientes este mes
-  const pending = D.recurring.filter(
-    (r) => r.active && !D.transactions.some((t) => t.recurring_id === r.id && monthKey(t.date) === mk.slice(0, 7))
-  )
+  const now = envelopeStats(D)
+  const before = envelopeStats(D, MES + '-01')
+  const needTotal = active.filter((e) => e.kind !== 'longterm').reduce((s, e) => s + neededFor(e, D, MES, now, before), 0)
+  const fundedTotal = active.filter((e) => e.kind !== 'longterm').reduce((s, e) => s + Math.min(allocatedIn(D, e.id, MES), neededFor(e, D, MES, now, before)), 0)
 
-  async function registerRecurring(r) {
-    if (!r.account_id) { alert('Asigna una cuenta a este movimiento recurrente en Ajustes.'); return }
-    const { error } = await supabase.from('transactions').insert({
-      date: t0, kind: r.kind, amount: r.amount, account_id: r.account_id,
-      category_id: r.category_id, debt_id: r.debt_id, note: r.name, recurring_id: r.id,
-    })
-    if (error) alert(error.message); else D.reload()
-  }
-
-  const activeDebts = D.debts.filter((d) => !d.archived)
-  const activeGoals = D.goals.filter((g) => !g.completed)
-  const empty = D.accounts.length === 0
+  const steps = [
+    { done: D.accounts.length > 0, text: 'Crea tus cuentas (banco, efectivo) con su saldo actual', to: '/cuentas' },
+    { done: bills.filter((e) => e.kind === 'fixed').length > 0, text: 'Agrega tus gastos fijos (renta, servicios, celular…)', to: '/fijos' },
+    { done: D.incomes.length > 0 || T.enveloped > 0, text: 'Registra tu primer ingreso para repartirlo', action: ctx.openIncome },
+  ]
+  const onboarding = steps.some((s) => !s.done) && D.incomes.length === 0
 
   return (
     <>
-      <div className="page-head">
-        <h1>Resumen</h1>
-        <div className="filters">
-          <div>
-            <label>Período</label>
-            <select value={period} onChange={(e) => setPeriod(e.target.value)}>
-              {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-            </select>
-          </div>
-          {period === 'custom' && (
-            <>
-              <div><label>Desde</label><input type="date" value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} /></div>
-              <div><label>Hasta</label><input type="date" value={custom.to} onChange={(e) => setCustom({ ...custom, to: e.target.value })} /></div>
-            </>
-          )}
-          <div>
-            <label>Cuenta</label>
-            <select value={acc} onChange={(e) => setAcc(e.target.value)}>
-              <option value="">Todas</option>
-              {D.accounts.filter((a) => !a.archived).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label>Categoría</label>
-            <select value={cat} onChange={(e) => setCat(e.target.value)}>
-              <option value="">Todas</option>
-              {D.categories.filter((c) => !c.archived).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label>Comparar</label>
-            <div className="seg">
-              <button className={compare ? 'on' : ''} onClick={() => setCompare(true)}>Sí</button>
-              <button className={!compare ? 'on' : ''} onClick={() => setCompare(false)}>No</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PageHead title="Hola, Andrea" sub="Así va tu mes. Cada vez que recibas un ingreso, regístralo y el sistema te propone cómo repartirlo.">
+        <button className="btn pri" onClick={ctx.openIncome}>+ Registrar ingreso</button>
+      </PageHead>
 
-      {empty && (
-        <div className="banner">
-          <b>¡Bienvenida! 👋</b> Empieza creando tus cuentas (banco, efectivo) en <Link to="/patrimonio">Patrimonio</Link>,
-          luego registra tus movimientos en <Link to="/movimientos">Movimientos</Link>.
-        </div>
-      )}
-
-      {pending.length > 0 && (
-        <div className="banner">
-          <b>Pendientes de registrar este mes</b>
-          <div className="list" style={{ marginTop: 6 }}>
-            {pending.map((r) => (
-              <div className="row" key={r.id} style={{ borderColor: '#d6e4ff' }}>
-                <div className="grow"><div className="title">{r.name}</div><div className="small muted">Día {r.day_of_month} · {r.kind === 'income' ? 'Ingreso' : 'Gasto'}</div></div>
-                <span className="amount">{mxn(r.amount)}</span>
-                <button className="btn sm" onClick={() => registerRecurring(r)}>Registrar</button>
-              </div>
+      {onboarding && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <b>Para empezar</b>
+          <div className="list" style={{ marginTop: 8 }}>
+            {steps.map((s, i) => (
+              <Item key={i} title={`${s.done ? '✅' : '⬜'}  ${s.text}`}
+                onClick={() => (s.to ? nav(s.to) : s.action())} />
             ))}
           </div>
         </div>
       )}
 
-      <div className="grid kpis">
-        <Kpi hero title="Patrimonio neto" value={mxn0(nw.total)} sub={`Cuentas ${mxn0(nw.cash)} · Inversiones ${mxn0(nw.inv)} · Deudas −${mxn0(nw.debt)}`} />
-        <Kpi title="Ingresos" value={mxn0(m.inc)} delta={compare ? pctChange(m.inc, m.pInc) : null} />
-        <Kpi title="Gastos" value={mxn0(m.exp)} invert delta={compare ? pctChange(m.exp, m.pExp) : null} />
-        <Kpi title="Ahorro del período" value={mxn0(savings)} sub={`Tasa de ahorro ${pct(savingsRate)}`} delta={compare ? pctChange(savings, m.pInc - m.pExp) : null} />
-        <Kpi title="Gasto promedio al día" value={mxn0(m.exp / m.days)} invert delta={compare ? pctChange(m.exp / m.days, m.pExp / m.prevDays) : null} />
-        <Kpi title="Ingreso promedio al día" value={mxn0(m.inc / m.days)} delta={compare ? pctChange(m.inc / m.days, m.pInc / m.prevDays) : null} />
+      {T.unassigned > 0.5 && (
+        <div className="callout warn" style={{ marginBottom: 16 }}>
+          Tienes <b>{mxn(T.unassigned)}</b> en tus cuentas que aún no están apartados en ningún sobre.{' '}
+          <button className="link" onClick={ctx.openAssign}>Asignarlos ahora</button>
+        </div>
+      )}
+      {T.unassigned < -0.5 && (
+        <div className="callout bad" style={{ marginBottom: 16 }}>
+          Tus sobres suman <b>{mxn(-T.unassigned)}</b> más de lo que hay en tus cuentas. Revisa los saldos de <Link to="/cuentas">Cuentas</Link> o un gasto sin registrar.
+        </div>
+      )}
+
+      <div className="kpis">
+        <Kpi label="Patrimonio neto" value={mxn0(NW.total)} hint={`Cuentas ${mxn0(NW.accounts)} · Por cobrar ${mxn0(NW.owed)} · Deudas −${mxn0(NW.debts)}`} onClick={() => nav('/cuentas')} />
+        <Kpi label="Disponible para ti" value={mxn0(personal ? now[personal.id]?.balance : 0)}
+          tone={personal && now[personal.id]?.balance < 0 ? 'bad' : ''}
+          hint={`Gastado este mes ${mxn0(personal ? spentIn(D, personal.id, MES) : 0)}`} onClick={() => nav('/personales')} />
+        <Kpi label="Pagos del mes" value={`${paidCount} de ${bills.filter((e) => Number(e.monthly_amount) > 0).length}`} hint="Gastos fijos y deudas pagados" onClick={() => nav('/pagos')} />
+        <Kpi label="Reparto del mes" value={`${pct(needTotal ? (fundedTotal / needTotal) * 100 : 0)}`} hint={`Apartado ${mxn0(fundedTotal)} de ${mxn0(needTotal)}`} />
+        <Kpi label="Fondo de emergencia" value={mxn0(emergency ? now[emergency.id]?.balance : 0)}
+          hint={emergency?.target_amount ? `${pct(((now[emergency.id]?.balance || 0) / emergency.target_amount) * 100)} de ${mxn0(emergency.target_amount)}` : `${mxn0(emergency?.monthly_amount || 0)} al mes`} onClick={() => nav('/emergencia')} />
+        <Kpi label="Ahorro a largo plazo" value={mxn0(longterm ? now[longterm.id]?.balance : 0)} hint={`${D.settings.longterm_pct}% de cada ingreso + lo que sobre`} onClick={() => nav('/largo-plazo')} />
       </div>
 
-      <div className="grid two">
-        <div className="card">
+      <h2>Análisis</h2>
+      <div className="filters">
+        <label className="f">Período
+          <select value={period} onChange={(e) => setPeriod(e.target.value)}>{PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}</select>
+        </label>
+        {period === 'custom' && (
+          <>
+            <label className="f">Desde<input type="date" value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} /></label>
+            <label className="f">Hasta<input type="date" value={custom.to} onChange={(e) => setCustom({ ...custom, to: e.target.value })} /></label>
+          </>
+        )}
+        <label className="f">Cuenta
+          <select value={acc} onChange={(e) => setAcc(e.target.value)}>
+            <option value="">Todas</option>
+            {D.accounts.filter((a) => !a.archived).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+        </label>
+        <div className="f">Comparar<div className="seg">
+          <button className={compare ? 'on' : ''} onClick={() => setCompare(true)}>Sí</button>
+          <button className={!compare ? 'on' : ''} onClick={() => setCompare(false)}>No</button>
+        </div></div>
+      </div>
+
+      <div className="kpis">
+        <Kpi label="Ingresos" value={mxn0(m.inc)} hint={compare ? <Delta cur={m.inc} prev={m.pInc} /> : null} />
+        <Kpi label="Gastos" value={mxn0(m.exp)} hint={compare ? <Delta cur={m.exp} prev={m.pExp} invert /> : null} />
+        <Kpi label="Ahorro del período" value={mxn0(savings)} tone={savings < 0 ? 'bad' : ''}
+          hint={m.inc > 0 ? `Tasa de ahorro ${pct((savings / m.inc) * 100)}` : null} />
+        <Kpi label="Gasto promedio al día" value={mxn0(m.exp / m.days)} hint={compare ? <Delta cur={m.exp / m.days} prev={m.pExp / m.prevDays} invert /> : null} />
+        <Kpi label="Ingreso promedio al día" value={mxn0(m.inc / m.days)} hint={compare ? <Delta cur={m.inc / m.days} prev={m.pInc / m.prevDays} /> : null} />
+      </div>
+
+      <div className="split" style={{ marginTop: 20 }}>
+        <div>
           <h2>Ingresos vs. gastos (6 meses)</h2>
-          <ResponsiveContainer width="100%" height={240}>
+          <ResponsiveContainer width="100%" height={230}>
             <BarChart data={m.monthly} barGap={4}>
-              <CartesianGrid vertical={false} stroke="#eee" />
-              <XAxis dataKey="mes" tickLine={false} axisLine={false} />
-              <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
+              <CartesianGrid vertical={false} stroke="var(--line)" />
+              <XAxis dataKey="mes" tickLine={false} axisLine={false} tick={{ fill: 'var(--muted)', fontSize: 12 }} />
+              <YAxis tickLine={false} axisLine={false} width={44} tick={{ fill: 'var(--muted)', fontSize: 12 }} tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
               <Tooltip formatter={(v) => mxn(v)} />
               <Legend />
-              <RBar dataKey="Ingresos" fill="#30a46c" radius={[6, 6, 0, 0]} />
-              <RBar dataKey="Gastos" fill="#e5484d" radius={[6, 6, 0, 0]} />
+              <RBar dataKey="Ingresos" fill="#4F7A5A" radius={[5, 5, 0, 0]} />
+              <RBar dataKey="Gastos" fill="#A6493F" radius={[5, 5, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
-        <div className="card">
+        <div>
           <h2>Gasto acumulado por día</h2>
-          <ResponsiveContainer width="100%" height={240}>
+          <ResponsiveContainer width="100%" height={230}>
             <LineChart data={m.line}>
-              <CartesianGrid vertical={false} stroke="#eee" />
-              <XAxis dataKey="dia" tickLine={false} axisLine={false} />
-              <YAxis tickLine={false} axisLine={false} width={48} tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
+              <CartesianGrid vertical={false} stroke="var(--line)" />
+              <XAxis dataKey="dia" tickLine={false} axisLine={false} tick={{ fill: 'var(--muted)', fontSize: 12 }} />
+              <YAxis tickLine={false} axisLine={false} width={44} tick={{ fill: 'var(--muted)', fontSize: 12 }} tickFormatter={(v) => (v >= 1000 ? `${v / 1000}k` : v)} />
               <Tooltip formatter={(v) => mxn(v)} labelFormatter={(d) => `Día ${d}`} />
               <Legend />
-              <Line type="monotone" dataKey="Actual" stroke="#0a84ff" strokeWidth={2.5} dot={false} />
-              {compare && <Line type="monotone" dataKey="Anterior" stroke="#aeaeb2" strokeWidth={2} strokeDasharray="5 4" dot={false} />}
+              <Line type="monotone" dataKey="Actual" stroke="#6B5E4E" strokeWidth={2.5} dot={false} />
+              {compare && <Line type="monotone" dataKey="Anterior" stroke="#B8B2A9" strokeWidth={2} strokeDasharray="5 4" dot={false} />}
             </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      <div className="grid two">
-        <div className="card">
+      <div className="split">
+        <div>
           <h2>Gastos por categoría</h2>
           {m.cats.length === 0 ? <Empty>Sin gastos en este período.</Empty> : (
             <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div style={{ width: 180, height: 180 }}>
+              <div style={{ width: 170, height: 170 }}>
                 <ResponsiveContainer>
                   <PieChart>
-                    <Pie data={m.cats} dataKey="value" innerRadius={52} outerRadius={84} paddingAngle={2} stroke="none">
-                      {m.cats.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                    <Pie data={m.cats} dataKey="value" innerRadius={48} outerRadius={80} paddingAngle={2} stroke="none">
+                      {m.cats.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                     </Pie>
                     <Tooltip formatter={(v) => mxn(v)} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="list" style={{ flex: 1, minWidth: 180 }}>
+              <div style={{ flex: 1, minWidth: 170 }}>
                 {m.cats.slice(0, 7).map((c, i) => (
-                  <div className="row" key={c.name} style={{ padding: '6px 0' }}>
-                    <span className="dot" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                    <span className="grow small">{c.name}</span>
-                    <span className="amount small">{mxn0(c.value)}</span>
-                    <span className="small muted" style={{ width: 36, textAlign: 'right' }}>{pct((c.value / m.exp) * 100)}</span>
+                  <div key={c.name} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0' }}>
+                    <span style={{ width: 9, height: 9, borderRadius: 9, background: COLORS[i % COLORS.length] }} />
+                    <span style={{ flex: 1 }} className="note">{c.name}</span>
+                    <span className="num">{mxn0(c.value)}</span>
+                    <span className="note" style={{ width: 34, textAlign: 'right' }}>{pct((c.value / m.exp) * 100)}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
         </div>
-        <div className="card">
-          <h2>Presupuesto de {parse(mk).toLocaleDateString('es-MX', { month: 'long' })}</h2>
-          {budgetRows.length === 0 ? (
-            <Empty>Aún no defines presupuestos. <Link to="/presupuestos">Crear presupuesto</Link></Empty>
-          ) : (
-            <div className="stack">
-              {budgetRows.map((b) => {
-                const r = b.budget ? b.spent / b.budget : 0
+        <div>
+          <h2>Ahorros con meta</h2>
+          {goals.length === 0 ? <Empty>Aún no tienes metas. <Link to="/metas">Crear una</Link></Empty> : (
+            <div className="list">
+              {goals.map((g) => {
+                const bal = now[g.id]?.balance || 0
                 return (
-                  <div key={b.id}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }} className="small">
-                      <span>{b.name}</span><span className="muted">{mxn0(b.spent)} / {mxn0(b.budget)}</span>
-                    </div>
-                    <Progress value={b.spent} max={b.budget} tone={r > 1 ? 'over' : r > 0.8 ? 'warn' : 'ok'} />
-                  </div>
+                  <Item key={g.id} title={g.name} sub={g.target_date ? `Límite: ${fmtDate(g.target_date)}` : null}
+                    right={g.target_amount ? pct((bal / g.target_amount) * 100) : mxn0(bal)} onClick={() => nav('/metas')}>
+                    {g.target_amount && <div style={{ marginTop: 6 }}><Bar value={bal} max={Number(g.target_amount)} tone="good" /></div>}
+                  </Item>
                 )
               })}
             </div>
@@ -258,40 +248,22 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="grid two">
-        <div className="card">
+      {debts.length > 0 && (
+        <>
           <h2>Deudas</h2>
-          {activeDebts.length === 0 ? <Empty>Sin deudas registradas.</Empty> : (
-            <div className="stack">
-              {activeDebts.map((d) => (
-                <div key={d.id}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <b>{d.name}</b><span className="amount">{mxn0(d.remaining)}</span>
-                  </div>
-                  <Progress value={Number(d.total_paid)} max={Number(d.original_amount)} />
-                  <div className="small muted">Pagado {mxn0(d.total_paid)} de {mxn0(d.original_amount)}{d.monthly_payment ? ` · Mensualidad ${mxn0(d.monthly_payment)}` : ''}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="card">
-          <h2>Metas</h2>
-          {activeGoals.length === 0 ? <Empty>Aún no tienes metas. <Link to="/metas">Crear una meta</Link></Empty> : (
-            <div className="stack">
-              {activeGoals.slice(0, 4).map((g) => (
-                <div key={g.id}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <b>{g.name}</b><span className="small muted">{mxn0(g.saved)} / {mxn0(g.target_amount)}</span>
-                  </div>
-                  <Progress value={Number(g.saved)} max={Number(g.target_amount)} tone="ok" />
-                  {g.target_date && <div className="small muted">Meta: {fmtDate(g.target_date)}</div>}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+          <div className="list">
+            {debts.map((d) => {
+              const info = debtInfo(d, D)
+              return (
+                <Item key={d.id} title={d.name} sub={`Mensualidad ${mxn0(d.monthly_amount)}${d.due_day ? ` · día ${d.due_day}` : ''}`}
+                  right={info ? mxn0(info.remaining) : '—'} rightSub={info ? 'pendiente' : 'sin saldo total'} onClick={() => nav('/fijos')}>
+                  {info && <div style={{ marginTop: 6 }}><Bar value={info.paid} max={info.total} tone="good" /></div>}
+                </Item>
+              )
+            })}
+          </div>
+        </>
+      )}
     </>
   )
 }

@@ -1,39 +1,38 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { supabase } from './supabase'
+import { DEFAULT_PRIORITY } from './calc'
 
 const Ctx = createContext(null)
 export const useData = () => useContext(Ctx)
 
-const EMPTY = {
-  accounts: [], balances: [], categories: [], transactions: [], debts: [],
-  goals: [], contributions: [], budgets: [], recurring: [], investments: [],
+const TABLES = {
+  accounts: ['created_at', true],
+  categories: ['name', true],
+  income_sources: ['created_at', true],
+  envelopes: ['created_at', true],
+  incomes: ['date', false],
+  allocations: ['date', false],
+  transactions: ['date', false],
+  people: ['created_at', true],
+  loans: ['date', false],
 }
+const EMPTY = Object.fromEntries(Object.keys(TABLES).map((k) => [k, []]))
+const DEFAULT_SETTINGS = { longterm_pct: 10, loan_limit: 1200, priority: DEFAULT_PRIORITY }
 
 export function DataProvider({ children }) {
-  const [data, setData] = useState(EMPTY)
+  const [data, setData] = useState({ ...EMPTY, settings: DEFAULT_SETTINGS })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   const reload = useCallback(async () => {
-    const q = {
-      accounts: supabase.from('accounts').select('*').order('created_at'),
-      balances: supabase.from('account_balances').select('*'),
-      categories: supabase.from('categories').select('*').order('name'),
-      transactions: supabase.from('transactions').select('*').order('date', { ascending: false }).order('created_at', { ascending: false }),
-      debts: supabase.from('debt_status').select('*').order('created_at'),
-      goals: supabase.from('goal_progress').select('*').order('created_at'),
-      contributions: supabase.from('goal_contributions').select('*').order('date', { ascending: false }),
-      budgets: supabase.from('budgets').select('*'),
-      recurring: supabase.from('recurring_items').select('*').order('day_of_month'),
-      investments: supabase.from('investments').select('*').order('created_at'),
-    }
-    const keys = Object.keys(q)
-    const results = await Promise.all(keys.map((k) => q[k]))
+    const keys = Object.keys(TABLES)
+    const reqs = keys.map((k) => supabase.from(k).select('*').order(TABLES[k][0], { ascending: TABLES[k][1] }))
+    const [settingsRes, ...res] = await Promise.all([supabase.from('settings').select('*').eq('id', 1).maybeSingle(), ...reqs])
+    const bad = [settingsRes, ...res].find((r) => r.error)
+    if (bad) { setError(bad.error.message); setLoading(false); return }
     const next = {}
-    for (let i = 0; i < keys.length; i++) {
-      if (results[i].error) { setError(results[i].error.message); setLoading(false); return }
-      next[keys[i]] = results[i].data || []
-    }
+    keys.forEach((k, i) => { next[k] = res[i].data || [] })
+    next.settings = { ...DEFAULT_SETTINGS, ...(settingsRes.data || {}) }
     setError(null)
     setData(next)
     setLoading(false)
@@ -42,12 +41,4 @@ export function DataProvider({ children }) {
   useEffect(() => { reload() }, [reload])
 
   return <Ctx.Provider value={{ ...data, loading, error, reload }}>{children}</Ctx.Provider>
-}
-
-// Patrimonio = saldos de cuentas + inversiones - deudas pendientes
-export function computeNetWorth({ balances, investments, debts }) {
-  const cash = balances.filter((b) => !b.archived).reduce((s, b) => s + Number(b.balance), 0)
-  const inv = investments.filter((i) => !i.archived).reduce((s, i) => s + Number(i.current_value), 0)
-  const debt = debts.filter((d) => !d.archived).reduce((s, d) => s + Number(d.remaining), 0)
-  return { cash, inv, debt, total: cash + inv - debt }
 }

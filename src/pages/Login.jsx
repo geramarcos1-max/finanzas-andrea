@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { ErrorMsg } from '../ui'
 
 export default function Login() {
   const [mode, setMode] = useState('in')
@@ -27,17 +26,17 @@ export default function Login() {
 
   return (
     <div className="auth">
-      <form className="card stack" onSubmit={submit}>
+      <form className="modal" onSubmit={submit}>
         <div>
-          <h1>💸 Mis Finanzas</h1>
-          <p className="muted" style={{ margin: 0 }}>{mode === 'in' ? 'Inicia sesión para continuar' : 'Crea tu cuenta'}</p>
+          <h3 style={{ fontSize: 22 }}>Finanzas de Andrea</h3>
+          <p className="note" style={{ margin: 0 }}>{mode === 'in' ? 'Inicia sesión para continuar' : 'Crea tu cuenta'}</p>
         </div>
-        <div><label>Correo</label><input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-        <div><label>Contraseña</label><input type="password" required autoComplete={mode === 'in' ? 'current-password' : 'new-password'} value={password} onChange={(e) => setPassword(e.target.value)} /></div>
-        <ErrorMsg msg={error} />
-        {info && <div className="banner small">{info}</div>}
-        <button className="btn" disabled={busy}>{mode === 'in' ? 'Entrar' : 'Crear cuenta'}</button>
-        <button type="button" className="btn ghost" onClick={() => { setMode(mode === 'in' ? 'up' : 'in'); setError(''); setInfo('') }}>
+        <label className="f">Correo<input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+        <label className="f">Contraseña<input type="password" required autoComplete={mode === 'in' ? 'current-password' : 'new-password'} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+        {error && <div className="callout bad" style={{ margin: 0 }}>{error}</div>}
+        {info && <div className="callout" style={{ margin: 0 }}>{info}</div>}
+        <button className="btn pri" disabled={busy}>{mode === 'in' ? 'Entrar' : 'Crear cuenta'}</button>
+        <button type="button" className="btn" onClick={() => { setMode(mode === 'in' ? 'up' : 'in'); setError(''); setInfo('') }}>
           {mode === 'in' ? 'Crear cuenta nueva' : 'Ya tengo cuenta'}
         </button>
       </form>

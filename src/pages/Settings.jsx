@@ -1,99 +1,109 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useData } from '../lib/DataContext'
-import { mxn } from '../lib/format'
-import { Empty, ErrorMsg } from '../ui'
+import { DEFAULT_PRIORITY, GROUPS } from '../lib/calc'
+import { mxn0, today } from '../lib/format'
+import { Empty, FormModal, Item, PageHead, Pill, confirmDel, run, toast } from '../ui'
 
-async function run(promise, reload) {
-  const { error } = await promise
-  if (error) alert(error.message); else reload && reload()
+function Rules({ D }) {
+  const [open, setOpen] = useState(false)
+  const personal = D.envelopes.find((e) => e.kind === 'personal')
+  const emergency = D.envelopes.find((e) => e.kind === 'emergency')
+  const s = D.settings
+  const fields = [
+    { key: 'personal', label: 'Gastos personales al mes', type: 'money' },
+    { key: 'emergency', label: 'Aporte mensual al fondo de emergencia', type: 'money' },
+    { key: 'pct', label: '% de cada ingreso a largo plazo', type: 'number', min: 0, max: 100 },
+    { key: 'loan', label: 'Límite de préstamo por persona al mes', type: 'money' },
+  ]
+  async function save(v) {
+    const r = await Promise.all([
+      supabase.from('envelopes').update({ monthly_amount: v.personal || 0 }).eq('id', personal.id),
+      supabase.from('envelopes').update({ monthly_amount: v.emergency || 0 }).eq('id', emergency.id),
+      supabase.from('settings').upsert({ id: 1, longterm_pct: Number(v.pct) || 0, loan_limit: v.loan || 0, priority: s.priority }),
+    ])
+    const bad = r.find((x) => x.error)
+    if (bad) return bad.error.message
+    await D.reload(); toast('Reglas guardadas'); return true
+  }
+  return (
+    <>
+      <h2>Reglas del reparto</h2>
+      <div className="list">
+        <Item title="Gastos personales al mes" right={mxn0(personal?.monthly_amount)} />
+        <Item title="Aporte mensual al fondo de emergencia" right={mxn0(emergency?.monthly_amount)} />
+        <Item title="% de cada ingreso a largo plazo" right={`${s.longterm_pct}%`} />
+        <Item title="Límite de préstamo por persona al mes" right={mxn0(s.loan_limit)} />
+      </div>
+      <p style={{ marginTop: 10 }}><button className="btn" onClick={() => setOpen(true)}>Editar reglas</button></p>
+      {open && <FormModal title="Reglas del reparto" fields={fields} onClose={() => setOpen(false)} onSave={save}
+        initial={{ personal: String(personal?.monthly_amount || ''), emergency: String(emergency?.monthly_amount || ''), pct: s.longterm_pct, loan: String(s.loan_limit || '') }} />}
+    </>
+  )
+}
+
+function Priority({ D }) {
+  const order = [...(D.settings.priority || []), ...DEFAULT_PRIORITY].filter((g, i, a) => a.indexOf(g) === i && GROUPS[g])
+  async function move(i, d) {
+    const j = i + d
+    if (j < 0 || j >= order.length) return
+    const next = [...order]; [next[i], next[j]] = [next[j], next[i]]
+    await run(supabase.from('settings').upsert({ id: 1, longterm_pct: D.settings.longterm_pct, loan_limit: D.settings.loan_limit, priority: next }), D.reload, 'Orden guardado')
+  }
+  return (
+    <>
+      <h2>Orden del reparto</h2>
+      <p className="note">Cada ingreso cubre primero lo que está arriba y luego baja. Lo que sobre al final va a ahorro a largo plazo.</p>
+      <div className="list">
+        {order.map((g, i) => (
+          <Item key={g} title={<><Pill>{i + 1}</Pill> {GROUPS[g]}</>}
+            actions={<><button className="btn sm" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Subir">↑</button>
+              <button className="btn sm" disabled={i === order.length - 1} onClick={() => move(i, 1)} aria-label="Bajar">↓</button></>} />
+        ))}
+      </div>
+    </>
+  )
+}
+
+function Sources({ D }) {
+  const [modal, setModal] = useState(null)
+  const save = (ed) => async (v) => (await run(ed ? supabase.from('income_sources').update({ name: v.name.trim() }).eq('id', ed.id) : supabase.from('income_sources').insert({ name: v.name.trim() }), D.reload, 'Guardado')) ? true : 'No se pudo guardar (¿nombre repetido?)'
+  const del = async (s) => {
+    if (D.incomes.some((i) => i.source_id === s.id)) {
+      if (window.confirm(`"${s.name}" ya tiene ingresos, así que se archivará. ¿Continuar?`)) await run(supabase.from('income_sources').update({ archived: true }).eq('id', s.id), D.reload, 'Archivada')
+    } else if (confirmDel(s.name)) await run(supabase.from('income_sources').delete().eq('id', s.id), D.reload, 'Eliminada')
+  }
+  return (
+    <>
+      <h2>Fuentes de ingreso</h2>
+      <div className="list">
+        {D.income_sources.filter((s) => !s.archived).map((s) => (
+          <Item key={s.id} title={s.name} actions={<><button className="link edit" onClick={() => setModal({ ed: s })}>Editar</button><button className="link" onClick={() => del(s)}>Quitar</button></>} />
+        ))}
+      </div>
+      <p style={{ marginTop: 10 }}><button className="btn" onClick={() => setModal({})}>+ Nueva fuente</button></p>
+      {modal && <FormModal title={modal.ed ? 'Editar fuente' : 'Nueva fuente'} fields={[{ key: 'name', label: 'Nombre', type: 'text', required: true, placeholder: 'Ej. Freelance' }]}
+        initial={modal.ed ? { name: modal.ed.name } : {}} onSave={save(modal.ed)} onClose={() => setModal(null)} />}
+    </>
+  )
 }
 
 function Categories({ D }) {
-  const blank = { name: '', kind: 'expense', nature: 'variable' }
-  const [f, setF] = useState(blank)
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
-  const add = async (e) => {
-    e.preventDefault()
-    if (!f.name.trim()) return
-    await run(supabase.from('categories').insert({ ...f, name: f.name.trim() }), D.reload)
-    setF(blank)
-  }
-  const group = (kind, title) => (
-    <div style={{ flex: 1, minWidth: 260 }}>
-      <h3 style={{ marginBottom: 6 }}>{title}</h3>
+  const [modal, setModal] = useState(false)
+  const list = D.categories.filter((c) => c.kind === 'expense')
+  return (
+    <>
+      <h2>Categorías de gasto</h2>
       <div className="list">
-        {D.categories.filter((c) => c.kind === kind).map((c) => (
-          <div className="row" key={c.id} style={{ padding: '7px 0', opacity: c.archived ? 0.45 : 1 }}>
-            <span className="dot" style={{ background: c.color || '#c7c7cc' }} />
-            <span className="grow">{c.name}</span>
-            <span className="chip">{c.nature === 'fixed' ? 'Fijo' : 'Variable'}</span>
-            <button className="btn ghost sm" onClick={() => run(supabase.from('categories').update({ archived: !c.archived }).eq('id', c.id), D.reload)}>{c.archived ? 'Restaurar' : 'Ocultar'}</button>
-          </div>
+        {list.map((c) => (
+          <Item key={c.id} title={<span style={{ opacity: c.archived ? 0.45 : 1 }}>{c.name}</span>}
+            actions={<button className="link edit" onClick={() => run(supabase.from('categories').update({ archived: !c.archived }).eq('id', c.id), D.reload)}>{c.archived ? 'Restaurar' : 'Ocultar'}</button>} />
         ))}
       </div>
-    </div>
-  )
-  return (
-    <div className="card">
-      <h2>Categorías</h2>
-      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>{group('expense', 'Gastos')}{group('income', 'Ingresos')}</div>
-      <form onSubmit={add} className="form-grid" style={{ marginTop: 14 }}>
-        <div><label>Nueva categoría</label><input value={f.name} onChange={set('name')} placeholder="Ej. Mascotas" /></div>
-        <div><label>Tipo</label><select value={f.kind} onChange={set('kind')}><option value="expense">Gasto</option><option value="income">Ingreso</option></select></div>
-        <div><label>Naturaleza</label><select value={f.nature} onChange={set('nature')}><option value="variable">Variable</option><option value="fixed">Fija</option></select></div>
-        <button className="btn">Agregar</button>
-      </form>
-    </div>
-  )
-}
-
-function Recurring({ D }) {
-  const blank = { name: '', kind: 'expense', amount: '', day_of_month: '1', account_id: '', category_id: '', debt_id: '' }
-  const [f, setF] = useState(blank)
-  const [error, setError] = useState('')
-  const set = (k) => (e) => setF({ ...f, [k]: e.target.value })
-  const accounts = D.accounts.filter((a) => !a.archived)
-  const add = async (e) => {
-    e.preventDefault(); setError('')
-    if (!f.name.trim() || !(Number(f.amount) > 0)) return setError('Escribe un nombre y un monto.')
-    await run(supabase.from('recurring_items').insert({
-      name: f.name.trim(), kind: f.kind, amount: Number(f.amount), day_of_month: Number(f.day_of_month),
-      account_id: f.account_id || accounts[0]?.id || null, category_id: f.category_id || null, debt_id: f.kind === 'expense' ? f.debt_id || null : null,
-    }), D.reload)
-    setF(blank)
-  }
-  return (
-    <div className="card">
-      <h2>Ingresos y gastos fijos</h2>
-      <p className="small muted" style={{ marginTop: -6 }}>Configúralos una vez; cada mes aparecerán en el Resumen como “Pendientes de registrar” para confirmarlos con un clic.</p>
-      {D.recurring.length === 0 ? <Empty>Aún no hay movimientos fijos (sueldo, renta, carro, suscripciones…).</Empty> : (
-        <div className="list">
-          {D.recurring.map((r) => (
-            <div className="row" key={r.id} style={{ opacity: r.active ? 1 : 0.5 }}>
-              <div className="grow"><div className="title">{r.name}</div>
-                <div className="small muted">Día {r.day_of_month} · {r.kind === 'income' ? 'Ingreso' : 'Gasto'} · {D.accounts.find((a) => a.id === r.account_id)?.name || 'sin cuenta'}</div></div>
-              <span className={`amount ${r.kind === 'income' ? 'pos' : ''}`}>{mxn(r.amount)}</span>
-              <button className="btn ghost sm" onClick={() => run(supabase.from('recurring_items').update({ active: !r.active }).eq('id', r.id), D.reload)}>{r.active ? 'Pausar' : 'Activar'}</button>
-              <button className="btn danger sm" onClick={() => confirm(`¿Eliminar "${r.name}"?`) && run(supabase.from('recurring_items').delete().eq('id', r.id), D.reload)}>✕</button>
-            </div>
-          ))}
-        </div>
-      )}
-      <form onSubmit={add} className="form-grid" style={{ marginTop: 14 }}>
-        <div><label>Nombre</label><input value={f.name} onChange={set('name')} placeholder="Sueldo, Pago del carro…" /></div>
-        <div><label>Tipo</label><select value={f.kind} onChange={set('kind')}><option value="expense">Gasto</option><option value="income">Ingreso</option></select></div>
-        <div><label>Monto</label><input type="number" step="0.01" value={f.amount} onChange={set('amount')} /></div>
-        <div><label>Día del mes</label><input type="number" min="1" max="31" value={f.day_of_month} onChange={set('day_of_month')} /></div>
-        <div><label>Cuenta</label><select value={f.account_id || accounts[0]?.id || ''} onChange={set('account_id')}>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></div>
-        <div><label>Categoría</label><select value={f.category_id} onChange={set('category_id')}><option value="">Sin categoría</option>{D.categories.filter((c) => !c.archived && c.kind === f.kind).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-        {f.kind === 'expense' && D.debts.some((d) => !d.archived) && (
-          <div><label>Abona a deuda</label><select value={f.debt_id} onChange={set('debt_id')}><option value="">No</option>{D.debts.filter((d) => !d.archived).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
-        )}
-        <button className="btn">Agregar</button>
-      </form>
-      <ErrorMsg msg={error} />
-    </div>
+      <p style={{ marginTop: 10 }}><button className="btn" onClick={() => setModal(true)}>+ Nueva categoría</button></p>
+      {modal && <FormModal title="Nueva categoría" fields={[{ key: 'name', label: 'Nombre', type: 'text', required: true, placeholder: 'Ej. Mascotas' }]} onClose={() => setModal(false)}
+        onSave={async (v) => (await run(supabase.from('categories').insert({ name: v.name.trim(), kind: 'expense', nature: 'variable' }), D.reload, 'Guardado')) ? true : 'No se pudo guardar'} />}
+    </>
   )
 }
 
@@ -105,45 +115,60 @@ function Access() {
   const add = async (e) => {
     e.preventDefault()
     if (!email.trim()) return
-    await run(supabase.from('allowed_emails').insert({ email: email.trim().toLowerCase() }), load)
+    await run(supabase.from('allowed_emails').insert({ email: email.trim().toLowerCase() }), load, 'Acceso otorgado')
     setEmail('')
   }
   return (
-    <div className="card">
+    <>
       <h2>Quién puede entrar</h2>
       <div className="list">
         {emails.map((m) => (
-          <div className="row" key={m}><span className="grow">{m}</span>
-            <button className="btn danger sm" onClick={() => confirm(`¿Quitar acceso a ${m}?`) && run(supabase.from('allowed_emails').delete().eq('email', m), load)}>Quitar</button>
-          </div>
+          <Item key={m} title={m} actions={<button className="link" onClick={() => window.confirm(`¿Quitar acceso a ${m}?`) && run(supabase.from('allowed_emails').delete().eq('email', m), load, 'Acceso quitado')}>Quitar</button>} />
         ))}
       </div>
-      <form onSubmit={add} style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+      <form onSubmit={add} className="row" style={{ marginTop: 10, flexWrap: 'nowrap' }}>
         <input type="email" placeholder="correo@ejemplo.com" value={email} onChange={(e) => setEmail(e.target.value)} />
         <button className="btn">Autorizar</button>
       </form>
-    </div>
+    </>
   )
 }
 
 function Password() {
   const [pw, setPw] = useState('')
-  const [msg, setMsg] = useState('')
   const change = async (e) => {
     e.preventDefault()
-    if (pw.length < 8) return setMsg('Mínimo 8 caracteres.')
+    if (pw.length < 8) return toast('Mínimo 8 caracteres')
     const { error } = await supabase.auth.updateUser({ password: pw })
-    setMsg(error ? error.message : 'Contraseña actualizada ✅'); setPw('')
+    toast(error ? '⚠️ ' + error.message : 'Contraseña actualizada'); setPw('')
   }
   return (
-    <form className="card" onSubmit={change}>
+    <>
       <h2>Cambiar contraseña</h2>
-      <div style={{ display: 'flex', gap: 8 }}>
+      <form onSubmit={change} className="row" style={{ flexWrap: 'nowrap' }}>
         <input type="password" autoComplete="new-password" placeholder="Nueva contraseña" value={pw} onChange={(e) => setPw(e.target.value)} />
         <button className="btn">Guardar</button>
-      </div>
-      {msg && <div className="small muted" style={{ marginTop: 8 }}>{msg}</div>}
-    </form>
+      </form>
+    </>
+  )
+}
+
+function Backup({ D }) {
+  function download() {
+    const { loading, error, reload, ...data } = D
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `finanzas-andrea-${today()}.json`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+  return (
+    <>
+      <h2>Respaldo</h2>
+      <p className="note">Descarga una copia de todos tus datos. Hazlo de vez en cuando.</p>
+      <button className="btn" onClick={download}>Descargar respaldo (.json)</button>
+    </>
   )
 }
 
@@ -151,13 +176,14 @@ export default function Settings() {
   const D = useData()
   return (
     <>
-      <div className="page-head"><h1>Ajustes</h1></div>
-      <div className="stack" style={{ gap: 16 }}>
-        <Recurring D={D} />
-        <Categories D={D} />
-        <Access />
-        <Password />
-      </div>
+      <PageHead title="Configuración" sub="Reglas que usa el sistema para proponer el reparto de cada ingreso." />
+      <Rules D={D} />
+      <Priority D={D} />
+      <Sources D={D} />
+      <Categories D={D} />
+      <Access />
+      <Password />
+      <Backup D={D} />
     </>
   )
 }

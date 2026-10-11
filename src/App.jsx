@@ -1,23 +1,79 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { supabase } from './lib/supabase'
-import { DataProvider } from './lib/DataContext'
+import { DataProvider, useData } from './lib/DataContext'
+import { IncomeFlow } from './flows'
+import { Toaster } from './ui'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
-import Transactions from './pages/Transactions'
-import Budgets from './pages/Budgets'
+import Incomes from './pages/Incomes'
+import Personal from './pages/Personal'
+import Payments from './pages/Payments'
+import Fixed from './pages/Fixed'
+import Savings from './pages/Savings'
 import Goals from './pages/Goals'
-import Wealth from './pages/Wealth'
+import Loans from './pages/Loans'
+import Accounts from './pages/Accounts'
 import Settings from './pages/Settings'
+import More from './pages/More'
+import { NAV } from './nav'
 
-const NAV = [
-  { to: '/', ico: '📊', label: 'Resumen' },
-  { to: '/movimientos', ico: '🧾', label: 'Movimientos' },
-  { to: '/presupuestos', ico: '🎯', label: 'Presupuestos' },
-  { to: '/metas', ico: '🏁', label: 'Metas' },
-  { to: '/patrimonio', ico: '🏦', label: 'Patrimonio' },
-  { to: '/ajustes', ico: '⚙️', label: 'Ajustes' },
-]
+const TABS = ['/', '/ingresos', '/personales', '/pagos']
+
+function Shell({ session }) {
+  const D = useData()
+  const [flow, setFlow] = useState(null)
+  const month = new Date().toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
+  const open = (mode) => setFlow(mode || 'income')
+
+  if (D.loading) return <div className="auth"><p className="note">Cargando…</p></div>
+  if (D.error) return <div className="auth"><div className="modal"><h3>No pude cargar los datos</h3><p className="note">{D.error}</p><button className="btn" onClick={D.reload}>Reintentar</button></div></div>
+
+  const ctx = { openIncome: () => open('income'), openAssign: () => open('assign') }
+  return (
+    <div className="app">
+      <aside>
+        <div className="brand">Finanzas de Andrea<small>{month}</small></div>
+        <nav className="side">
+          {NAV.map((n, i) => n === '-' ? <div key={i} className="sep" /> : (
+            <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>{n.label}</NavLink>
+          ))}
+        </nav>
+        <button className="btn pri cta" onClick={ctx.openIncome}>+ Registrar ingreso</button>
+        <div className="who note">{session.user.email}<br />
+          <button className="link" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div>
+      </aside>
+      <main>
+        <Routes>
+          <Route path="/" element={<Dashboard ctx={ctx} />} />
+          <Route path="/ingresos" element={<Incomes ctx={ctx} />} />
+          <Route path="/personales" element={<Personal />} />
+          <Route path="/pagos" element={<Payments />} />
+          <Route path="/fijos" element={<Fixed />} />
+          <Route path="/emergencia" element={<Savings kind="emergency" />} />
+          <Route path="/largo-plazo" element={<Savings kind="longterm" />} />
+          <Route path="/metas" element={<Goals />} />
+          <Route path="/prestamos" element={<Loans />} />
+          <Route path="/cuentas" element={<Accounts ctx={ctx} />} />
+          <Route path="/config" element={<Settings />} />
+          <Route path="/mas" element={<More email={session.user.email} />} />
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+      </main>
+      <nav className="tabbar">
+        {NAV.filter((n) => TABS.includes(n.to)).map((n) => (
+          <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>
+            <span className="ico">{n.ico}</span>{n.short || n.label}
+          </NavLink>
+        ))}
+        <NavLink to="/mas" className={({ isActive }) => (isActive ? 'active' : '')}><span className="ico">☰</span>Más</NavLink>
+      </nav>
+      {flow && <IncomeFlow mode={flow} onClose={() => setFlow(null)} />}
+      {/* acceso rápido en celular */}
+      <button className="btn pri fab" aria-label="Registrar ingreso" onClick={ctx.openIncome}>+ Ingreso</button>
+    </div>
+  )
+}
 
 export default function App() {
   const [session, setSession] = useState(undefined)
@@ -34,54 +90,18 @@ export default function App() {
     supabase.rpc('is_member').then(({ data }) => setMember(!!data))
   }, [session])
 
-  if (session === undefined) return null
-  if (!session) return <Login />
-  if (member === null) return null
-  if (!member) {
-    return (
-      <div className="auth"><div className="card stack">
-        <h1>Sin acceso</h1>
-        <p className="muted">El correo <b>{session.user.email}</b> no está autorizado para usar esta app.</p>
-        <button className="btn ghost" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button>
+  let body
+  if (session === undefined || (session && member === null)) body = null
+  else if (!session) body = <Login />
+  else if (!member) {
+    body = (
+      <div className="auth"><div className="modal">
+        <h3>Sin acceso</h3>
+        <p className="note">El correo <b>{session.user.email}</b> no está autorizado para usar esta app.</p>
+        <button className="btn" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button>
       </div></div>
     )
-  }
+  } else body = <DataProvider><Shell session={session} /></DataProvider>
 
-  return (
-    <DataProvider>
-      <div className="shell">
-        <aside className="sidebar">
-          <div className="brand">💸 Mis Finanzas</div>
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.to === '/'} className="nav-link">
-              <span>{n.ico}</span>{n.label}
-            </NavLink>
-          ))}
-          <div className="spacer" />
-          <div className="small muted" style={{ padding: '0 12px' }}>{session.user.email}</div>
-          <button className="nav-link" style={{ border: 0, background: 'none', cursor: 'pointer' }} onClick={() => supabase.auth.signOut()}>
-            <span>🚪</span>Salir
-          </button>
-        </aside>
-        <main className="main">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/movimientos" element={<Transactions />} />
-            <Route path="/presupuestos" element={<Budgets />} />
-            <Route path="/metas" element={<Goals />} />
-            <Route path="/patrimonio" element={<Wealth />} />
-            <Route path="/ajustes" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/" />} />
-          </Routes>
-        </main>
-        <nav className="tabbar">
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.to === '/'}>
-              <span className="ico">{n.ico}</span>{n.label}
-            </NavLink>
-          ))}
-        </nav>
-      </div>
-    </DataProvider>
-  )
+  return <>{body}<Toaster /></>
 }

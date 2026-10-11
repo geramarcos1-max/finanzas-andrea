@@ -1,9 +1,9 @@
 import { Link, useNavigate } from 'react-router-dom'
 import { useData } from '../lib/DataContext'
-import { cents, spentIn, totals } from '../lib/calc'
+import { allocatedIn, paymentsOf, spentIn, totals } from '../lib/calc'
 import { dueText, trafficLight } from '../lib/friendly'
 import { mxn, mxn0, pct, today } from '../lib/format'
-import { Bar, Pill } from '../ui'
+import { Bar } from '../ui'
 
 export default function Home({ ctx }) {
   const D = useData()
@@ -13,26 +13,23 @@ export default function Home({ ctx }) {
   const day = new Date().getDate()
   const active = D.envelopes.filter((e) => !e.archived)
   const personal = active.find((e) => e.kind === 'personal')
-  const emergency = active.find((e) => e.kind === 'emergency')
-  const longterm = active.find((e) => e.kind === 'longterm')
+  const savings = active.find((e) => e.kind === 'savings')
+  const investment = active.find((e) => e.kind === 'investment')
   const goals = active.filter((e) => e.kind === 'goal')
 
-  const monthly = Number(personal?.monthly_amount) || 0
   const left = personal ? T.env[personal.id]?.balance || 0 : 0
   const spent = personal ? spentIn(D, personal.id, MES) : 0
-  const light = trafficLight(left, monthly)
+  const setAside = personal ? allocatedIn(D, personal.id, MES) : 0
+  const reference = Math.max(setAside, left + spent)
+  const light = trafficLight(left, reference)
 
   const moves = D.pending_moves.filter((m) => !m.done_at)
-  const bills = active
-    .filter((e) => (e.kind === 'fixed' || e.kind === 'debt') && Number(e.monthly_amount) > 0)
-    .map((e) => ({ e, need: Number(e.monthly_amount), paid: spentIn(D, e.id, MES) }))
-    .filter((b) => cents(b.paid) < cents(b.need))
-    .sort((a, b) => (a.e.due_day || 99) - (b.e.due_day || 99))
+  const bills = paymentsOf(D, MES).filter((p) => !p.done)
 
   const todo = []
   if (moves.length) todo.push({ k: 'moves', icon: '🏦', title: 'Haz tus guardaditos en el banco', sub: `${moves.length} ${moves.length === 1 ? 'movimiento pendiente' : 'movimientos pendientes'}`, tone: 'warn', go: ctx.openBank })
-  if (T.unassigned > 0.5) todo.push({ k: 'un', icon: '💡', title: 'Tienes dinero sin destino', sub: `${mxn(T.unassigned)} · toca para repartirlo`, tone: 'warn', go: ctx.openAssign })
-  if (T.unassigned < -0.5) todo.push({ k: 'neg', icon: '⚠️', title: 'Algo no cuadra con tus cuentas', sub: `Tus apartados suman ${mxn(-T.unassigned)} más que tu dinero real. Revisa tus saldos.`, tone: 'bad', go: () => nav('/cuentas') })
+  if (T.unassigned > 0.5) todo.push({ k: 'un', icon: '💡', title: 'Tienes dinero sin destino', sub: `${mxn(T.unassigned)} · toca para decidir qué hacer con él`, tone: 'warn', go: ctx.openAssign })
+  if (T.unassigned < -0.5) todo.push({ k: 'neg', icon: '⚠️', title: 'Algo no cuadra con tus cuentas', sub: `Tus destinos suman ${mxn(-T.unassigned)} más que tu dinero real. Revisa tus saldos en Mi dinero.`, tone: 'bad', go: () => nav('/cuentas') })
   D.category_budgets.forEach((b) => {
     const cat = D.categories.find((c) => c.id === b.category_id)
     const used = D.transactions.filter((t) => t.kind === 'expense' && t.category_id === b.category_id && t.date.startsWith(MES)).reduce((s, t) => s + Number(t.amount), 0)
@@ -42,7 +39,7 @@ export default function Home({ ctx }) {
   })
   bills.slice(0, 4).forEach((b) => {
     const overdue = b.e.due_day && b.e.due_day < day
-    todo.push({ k: b.e.id, icon: overdue ? '🔴' : '🗓️', title: b.e.name, sub: `${mxn(b.need - b.paid)}${b.e.due_day ? ' · ' + dueText(b.e.due_day) : ''}`, tone: overdue ? 'bad' : '', go: () => nav('/pagos') })
+    todo.push({ k: b.e.id, icon: overdue ? '🔴' : '🗓️', title: b.e.name, sub: `${mxn(b.remaining)}${b.e.due_day ? ' · ' + dueText(b.e.due_day) : ''}`, tone: overdue ? 'bad' : '', go: () => nav('/pagos') })
   })
 
   const firstTime = D.accounts.length === 0
@@ -57,8 +54,8 @@ export default function Home({ ctx }) {
           <b>Empieza aquí</b>
           <ol>
             <li>Crea tu cuenta de banco con lo que tienes hoy → <Link to="/cuentas">Mi dinero</Link></li>
-            <li>Agrega tus pagos fijos (renta, carro…) → <Link to="/fijos">Pagos fijos</Link></li>
-            <li>Cuando te llegue dinero, toca <b>“Me llegó dinero”</b> y yo te digo cómo repartirlo.</li>
+            <li>Agrega tus pagos de cada mes (renta, carro…) → <Link to="/pagos">Mis pagos</Link></li>
+            <li>Cuando te llegue dinero, toca <b>“Me llegó dinero”</b> y yo te voy guiando.</li>
           </ol>
           <Link to="/guia" className="btn">📖 Ver cómo usar la app</Link>
         </div>
@@ -68,12 +65,13 @@ export default function Home({ ctx }) {
         <div className="note">Puedes gastar</div>
         <div className="huge num" style={{ color: light.tone ? `var(--${light.tone})` : 'inherit' }}>{mxn(Math.max(0, left))}</div>
         <div className={`light ${light.tone}`}>{light.icon} {light.text}</div>
-        {monthly > 0 && (
+        {reference > 0 && (
           <div style={{ marginTop: 14 }}>
-            <Bar value={spent} max={monthly} tone={light.tone || 'good'} />
-            <div className="note" style={{ marginTop: 4 }}>Este mes llevas gastado {mxn0(spent)} de {mxn0(monthly)}</div>
+            <Bar value={spent} max={reference} tone={light.tone || 'good'} />
+            <div className="note" style={{ marginTop: 4 }}>Este mes llevas gastado {mxn0(spent)}{setAside > 0 ? ` de los ${mxn0(setAside)} que separaste` : ''}</div>
           </div>
         )}
+        {reference === 0 && !firstTime && <p className="note" style={{ marginBottom: 0 }}>Cuando registres un ingreso, tú decides cuánto separar para gastar.</p>}
       </div>
 
       <div className="bigbtns">
@@ -99,18 +97,18 @@ export default function Home({ ctx }) {
 
       <h2>Mis ahorros</h2>
       <div className="saves">
-        {emergency && (
-          <Link to="/emergencia" className="card save">
-            <div className="note">🛟 Colchón para imprevistos</div>
-            <div className="v num">{mxn0(T.env[emergency.id]?.balance || 0)}</div>
-            {emergency.target_amount ? <><Bar value={T.env[emergency.id]?.balance || 0} max={Number(emergency.target_amount)} tone="good" /><div className="note">{pct(((T.env[emergency.id]?.balance || 0) / emergency.target_amount) * 100)}% de tu meta</div></> : <div className="note">{mxn0(emergency.monthly_amount)} al mes</div>}
+        {savings && (
+          <Link to="/ahorro" className="card save">
+            <div className="note">🌱 Mi ahorro</div>
+            <div className="v num">{mxn0(T.env[savings.id]?.balance || 0)}</div>
+            <div className="note">Lo que guardas cada vez</div>
           </Link>
         )}
-        {longterm && (
-          <Link to="/largo-plazo" className="card save">
-            <div className="note">🌱 Ahorro para el futuro</div>
-            <div className="v num">{mxn0(T.env[longterm.id]?.balance || 0)}</div>
-            <div className="note">Lo que sobra de cada ingreso</div>
+        {investment && (
+          <Link to="/inversion" className="card save">
+            <div className="note">📈 Mi inversión</div>
+            <div className="v num">{mxn0(T.env[investment.id]?.balance || 0)}</div>
+            <div className="note">Lo que apartas para invertir</div>
           </Link>
         )}
         <Link to="/metas" className="card save">
@@ -127,8 +125,9 @@ export default function Home({ ctx }) {
       </div>
 
       <div className="row" style={{ marginTop: 22, gap: 8 }}>
-        <Link to="/metas" className="btn">🎯 Mis metas</Link>
+        <Link to="/pagos" className="btn">✅ Mis pagos</Link>
         <Link to="/presupuestos" className="btn">🧮 Mis presupuestos</Link>
+        <Link to="/prestamos" className="btn">🤝 Préstamos</Link>
         <Link to="/reportes" className="btn">📊 Reportes</Link>
       </div>
     </>

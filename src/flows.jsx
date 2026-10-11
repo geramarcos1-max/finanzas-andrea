@@ -2,13 +2,15 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import { useData } from './lib/DataContext'
-import { GROUPS, cents, propose, r2, totals } from './lib/calc'
-import { GROUP_WHY, catEmoji } from './lib/friendly'
+import { allocatedIn, cents, envelopeStats, loanRoom, neededFor, paymentsOf, r2, totals } from './lib/calc'
+import { catEmoji, dueText } from './lib/friendly'
 import { fmtDate, mxn, mxn0, today } from './lib/format'
-import { FormModal, Modal, MoneyInput, Pill, opts, run, toNum, toast } from './ui'
+import { FormModal, Modal, MoneyInput, opts, run, toNum, toast } from './ui'
 
-// ---------- Registrar / editar un gasto (sale de una cuenta y de un apartado) ----------
-export function ExpenseModal({ envId, title = 'Registrar gasto', withCategory, editing, prefill, onClose }) {
+const HOLDS = ['personal', 'goal', 'savings', 'investment']
+
+// ---------- Registrar / editar un gasto (sale de una cuenta y, opcionalmente, de un apartado) ----------
+export function ExpenseModal({ envId, title = 'Registrar gasto', withCategory, editing, prefill, noCheck, onClose }) {
   const D = useData()
   const accounts = D.accounts.filter((a) => !a.archived)
   const fields = [
@@ -26,7 +28,7 @@ export function ExpenseModal({ envId, title = 'Registrar gasto', withCategory, e
   return (
     <FormModal title={editing ? 'Editar gasto' : title} fields={fields} initial={initial} onClose={onClose}
       onSave={async (v) => {
-        if (envId) {
+        if (envId && !noCheck) {
           const t = totals(D)
           const bal = (t.env[envId]?.balance ?? 0) + (editing ? Number(editing.amount) : 0)
           if (cents(v.amount) > cents(bal) && !window.confirm(`Aquí solo te quedan ${mxn(bal)}. ¿Registrar el gasto de todos modos?`)) {
@@ -119,7 +121,7 @@ export function QuickExpense({ onClose }) {
 export function MoveModal({ toEnvId, fromEnvId, onClose }) {
   const D = useData()
   const t = totals(D)
-  const envs = D.envelopes.filter((e) => !e.archived)
+  const envs = D.envelopes.filter((e) => !e.archived && HOLDS.includes(e.kind))
   const fields = [
     { key: 'from', label: 'Tomar de', type: 'select', options: [{ value: 'unassigned', label: `Dinero sin destino (${mxn(t.unassigned)})` }, ...envs.map((e) => ({ value: e.id, label: `${e.name} (${mxn(t.env[e.id]?.balance || 0)})` }))] },
     { key: 'to', label: 'Pasar a', type: 'select', options: opts(envs) },
@@ -127,16 +129,16 @@ export function MoveModal({ toEnvId, fromEnvId, onClose }) {
     { key: 'date', label: 'Fecha', type: 'date', required: true },
   ]
   return (
-    <FormModal title="Mover dinero" sub="Tu dinero no sale del banco; solo cambia de apartado." fields={fields} onClose={onClose}
+    <FormModal title="Mover dinero" sub="Tu dinero no sale del banco; solo cambia de destino dentro de la app." fields={fields} onClose={onClose}
       initial={{ from: fromEnvId || 'unassigned', to: toEnvId || envs[0]?.id, amount: '', date: today() }}
       onSave={async (v) => {
-        if (v.from === v.to) return 'Elige apartados distintos.'
+        if (v.from === v.to) return 'Elige destinos distintos.'
         const available = v.from === 'unassigned' ? t.unassigned : t.env[v.from]?.balance || 0
         if (cents(v.amount) > cents(available)) return `Solo hay ${mxn(available)} disponibles ahí.`
         const rows = v.from === 'unassigned'
           ? [{ date: v.date, envelope_id: v.to, amount: v.amount, kind: 'unassigned' }]
-          : [{ date: v.date, envelope_id: v.from, amount: -v.amount, kind: 'move', note: 'Movido a otro apartado' },
-             { date: v.date, envelope_id: v.to, amount: v.amount, kind: 'move', note: 'Recibido de otro apartado' }]
+          : [{ date: v.date, envelope_id: v.from, amount: -v.amount, kind: 'move', note: 'Movido a otro destino' },
+             { date: v.date, envelope_id: v.to, amount: v.amount, kind: 'move', note: 'Recibido de otro destino' }]
         return (await run(supabase.from('allocations').insert(rows), D.reload, 'Dinero movido')) ? true : 'No se pudo guardar'
       }} />
   )
@@ -184,31 +186,74 @@ export function BankStepsModal({ onClose }) {
   )
 }
 
-// ---------- Me llegó dinero: datos -> propuesta -> guardaditos ----------
+// ---------- Me llegó dinero: datos -> pagos -> gastos personales -> ahorro/inversión -> resumen ----------
+function PickRow({ checked, onToggle, title, sub, amount, onAmount }) {
+  return (
+    <div className={`pickrow ${checked ? 'on' : ''}`}>
+      <input type="checkbox" checked={checked} onChange={onToggle} aria-label={title} />
+      <div className="n" onClick={onToggle} style={{ cursor: 'pointer' }}>
+        <b>{title}</b>
+        {sub && <div className="note">{sub}</div>}
+      </div>
+      <MoneyInput value={amount} onChange={onAmount} placeholder="$ 0" />
+    </div>
+  )
+}
+
 export function IncomeFlow({ mode = 'income', onClose }) {
   const D = useData()
   const nav = useNavigate()
   const t = totals(D)
+  const assign = mode === 'assign'
   const sources = D.income_sources.filter((s) => !s.archived)
   const accounts = D.accounts.filter((a) => !a.archived)
-  const assign = mode === 'assign'
   const [step, setStep] = useState('form')
   const [f, setF] = useState({
     source: sources[0]?.id || '', amount: assign ? String(Math.max(0, t.unassigned)) : '', date: today(), account: accounts[0]?.id || '',
   })
   const [dateOpen, setDateOpen] = useState(false)
-  const [lines, setLines] = useState([])
-  const [edit, setEdit] = useState(false)
+  const [picked, setPicked] = useState({})
+  const [personal, setPersonal] = useState('')
+  const [sav, setSav] = useState('')
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [incomeId, setIncomeId] = useState(null)
   const set = (k) => (v) => setF((s) => ({ ...s, [k]: v }))
   const amount = toNum(f.amount)
-  const total = lines.reduce((a, l) => a + toNum(l.amount), 0)
-  const diff = cents(amount) - cents(total)
+  const month = f.date.slice(0, 7)
   const accName = accounts.find((a) => a.id === f.account)?.name
 
-  if (step === 'form' && !assign && !accounts.length) {
+  // Lo que se puede elegir pagar / abonar este mes
+  const now = envelopeStats(D)
+  const before = envelopeStats(D, month + '-01')
+  const pays = paymentsOf(D, month).filter((p) => !p.done)
+  const goals = D.envelopes.filter((e) => !e.archived && e.kind === 'goal').map((e) => {
+    const target = Number(e.target_amount) || 0
+    const bal = now[e.id]?.balance || 0
+    const need = target && bal >= target ? 0 : Math.max(0, neededFor(e, D, month, now, before) - allocatedIn(D, e.id, month))
+    return { e, need }
+  })
+  const people = D.people.filter((p) => !p.archived).map((p) => {
+    const { room } = loanRoom(D, p.id, month, D.settings.loan_limit)
+    return { p, room, need: Math.min(Number(p.monthly_amount) || 0, room) }
+  })
+
+  const items = [
+    ...pays.map((x) => ({ key: 'pay:' + x.e.id, group: 'pay', id: x.e.id, title: x.e.name, sub: `${x.e.due_day ? dueText(x.e.due_day) + ' · ' : ''}${x.e.kind === 'debt' ? 'Deuda' : 'Pago fijo'}`, need: x.remaining })),
+    ...goals.map((x) => ({ key: 'goal:' + x.e.id, group: 'goal', id: x.e.id, title: x.e.name, sub: x.need > 0 ? 'Abono sugerido para tu meta' : 'Meta', need: x.need })),
+    ...people.map((x) => ({ key: 'loan:' + x.p.id, group: 'loan', id: x.p.id, title: `Préstamo a ${x.p.name}`, sub: `Puedes prestar hasta ${mxn0(x.room)} este mes`, need: x.need, room: x.room })),
+  ]
+  const val = (it) => picked[it.key] ?? { on: false, amount: it.need > 0 ? String(it.need) : '' }
+  const setPick = (it, patch) => setPicked((p) => ({ ...p, [it.key]: { ...val(it), ...patch } }))
+  const chosen = items.filter((it) => val(it).on && toNum(val(it).amount) > 0)
+  const chosenTotal = r2(chosen.reduce((s, it) => s + toNum(val(it).amount), 0))
+  const left = r2(amount - chosenTotal)
+  const persN = toNum(personal)
+  const rest = r2(left - persN)
+  const savN = toNum(sav)
+  const invN = r2(rest - savN)
+
+  if (step === 'form' && !accounts.length) {
     return (
       <Modal onClose={onClose} title="Primero necesitas una cuenta"
         footer={<><button className="btn" onClick={onClose}>Cancelar</button>
@@ -218,34 +263,54 @@ export function IncomeFlow({ mode = 'income', onClose }) {
     )
   }
 
-  function toPlan() {
+  const Dots = ({ n }) => <div className="steps">{[1, 2, 3, 4, 5].map((i) => <span key={i} className={i <= n ? 'on' : ''} />)}</div>
+
+  function toPagos() {
     if (!(amount > 0)) return setErr('Escribe cuánto te llegó.')
     if (assign && cents(amount) > cents(t.unassigned)) return setErr(`Solo tienes ${mxn(t.unassigned)} sin destino.`)
-    setErr('')
-    setLines(normalizeLines(propose(D, D.settings, amount, f.date)))
-    setStep('plan')
+    setErr(''); setStep('pagos')
   }
 
-  async function accept() {
+  function afterPagos() {
+    if (cents(chosenTotal) > cents(amount)) return setErr(`Elegiste ${mxn(chosenTotal)}, que es más de lo que te llegó (${mxn(amount)}).`)
+    const bad = chosen.find((it) => it.group === 'loan' && cents(toNum(val(it).amount)) > cents(it.room))
+    if (bad) return setErr(`${bad.title}: solo puedes prestar ${mxn(bad.room)} este mes.`)
+    setErr('')
+    if (left <= 0) { setPersonal(''); setSav(''); return setStep('resumen') }
+    setStep('personal')
+  }
+
+  function afterPersonal() {
+    if (cents(persN) > cents(left)) return setErr(`Solo te quedan ${mxn(left)}.`)
+    setErr('')
+    if (rest <= 0) { setSav(''); return setStep('resumen') }
+    setSav(String(rest)); setStep('ahorro')
+  }
+
+  async function confirm() {
     setBusy(true)
-    const payload = lines.filter((l) => toNum(l.amount) > 0).map((l) => ({ envelope_id: l.envelope_id, amount: toNum(l.amount) }))
-    const { data, error } = assign
-      ? await supabase.rpc('assign_unassigned', { p_date: f.date, p_lines: payload })
-      : await supabase.rpc('register_income', { p_date: f.date, p_source: f.source || null, p_amount: amount, p_account: f.account, p_note: null, p_lines: payload })
+    const pick = (g) => chosen.filter((it) => it.group === g)
+    const { data, error } = await supabase.rpc('register_flow', {
+      p_mode: mode, p_date: f.date, p_source: assign ? null : f.source || null, p_amount: amount, p_account: f.account,
+      p_payments: pick('pay').map((it) => ({ envelope_id: it.id, amount: toNum(val(it).amount) })),
+      p_goals: pick('goal').map((it) => ({ envelope_id: it.id, amount: toNum(val(it).amount) })),
+      p_loans: pick('loan').map((it) => ({ person_id: it.id, amount: toNum(val(it).amount) })),
+      p_personal: persN, p_savings: rest > 0 ? savN : 0, p_investment: rest > 0 ? invN : 0,
+    })
     if (error) { setBusy(false); return toast('⚠️ ' + error.message) }
     await D.reload()
     setBusy(false)
-    if (assign) { toast('Listo ✓ Tu dinero ya tiene destino'); return onClose() }
     setIncomeId(data); setStep('done')
   }
 
-  // ----- Paso 1: ¿cuánto te llegó? -----
+  // ----- 1. ¿Cuánto te llegó? -----
   if (step === 'form') {
     return (
       <Modal onClose={onClose} title={assign ? 'Dale destino a tu dinero' : '¿Cuánto te llegó?'}
         sub={assign ? `Tienes ${mxn(t.unassigned)} en tus cuentas que todavía no tienen destino.` : null}
-        footer={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri big-action" onClick={toPlan}>Continuar</button></>}>
-        <label className="f" style={{ marginTop: 10 }}>Monto
+        footer={<><button className="btn" onClick={onClose}>Cancelar</button><button className="btn pri big-action" onClick={toPagos}>Continuar</button></>}>
+        <Dots n={1} />
+        <label className="f" style={{ marginTop: 6 }}>Monto
           <MoneyInput className="amount-input" autoFocus value={f.amount} onChange={set('amount')} placeholder="$ 0" />
         </label>
         {!assign && sources.length > 0 && (
@@ -256,11 +321,11 @@ export function IncomeFlow({ mode = 'income', onClose }) {
             </div>
           </>
         )}
-        {!assign && (accounts.length > 1 ? (
-          <label className="f" style={{ marginTop: 14 }}>¿A qué cuenta llegó?
+        {accounts.length > 1 ? (
+          <label className="f" style={{ marginTop: 14 }}>{assign ? '¿Desde qué cuenta pagarás?' : '¿A qué cuenta llegó?'}
             <select value={f.account} onChange={(e) => set('account')(e.target.value)}>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
           </label>
-        ) : <p className="note" style={{ marginTop: 12 }}>Llegó a <b>{accName}</b></p>)}
+        ) : <p className="note" style={{ marginTop: 12 }}>{assign ? 'Cuenta' : 'Llegó a'} <b>{accName}</b></p>}
         <p className="note" style={{ marginTop: 10 }}>
           {f.date === today() ? 'Fecha: hoy' : `Fecha: ${fmtDate(f.date)}`}{' '}
           <button className="link edit" onClick={() => setDateOpen(!dateOpen)}>Cambiar</button>
@@ -271,54 +336,115 @@ export function IncomeFlow({ mode = 'income', onClose }) {
     )
   }
 
-  // ----- Paso 2: la propuesta -----
-  if (step === 'plan') {
+  // ----- 2. ¿Qué pagos tienes que hacer? -----
+  if (step === 'pagos') {
+    const groupTitle = { pay: 'Pagos del mes', goal: 'Abonos a tus metas', loan: 'Préstamo familiar' }
     let g = ''
     return (
-      <Modal onClose={onClose} title="Te propongo esto"
-        sub={`De tus ${mxn(amount)}, esto es lo que yo haría. Tú decides.`}
-        footer={<>
-          <div className="row">
-            <button className="btn" onClick={() => setStep('form')}>Atrás</button>
-            <button className="btn" onClick={() => { setEdit(!edit); if (edit) setLines(normalizeLines(propose(D, D.settings, amount, f.date))) }}>{edit ? 'Volver a mi propuesta' : 'Quiero cambiar algo'}</button>
-          </div>
-          <button className="btn pri big-action" disabled={diff !== 0 || busy} onClick={accept}>Está bien, aceptar</button>
-        </>}>
-        <div style={{ margin: '8px 0' }}>
-          {lines.filter((l) => edit || toNum(l.amount) > 0 || l.falta > 0).map((l) => {
-            const i = lines.findIndex((x) => x.envelope_id === l.envelope_id)
-            const head = l.group !== g ? (g = l.group, (
-              <div className="grp" key={'g' + l.group}>{GROUPS[l.group]}<div className="why">{GROUP_WHY[l.group]}</div></div>
-            )) : null
-            const cur = toNum(l.amount)
-            return (
-              <div key={l.envelope_id}>
-                {head}
-                <div className="propline">
-                  <div className="n">
-                    {l.name}{' '}
-                    {l.falta > 0 && cur < l.falta && <Pill tone="warn">faltan {mxn0(l.falta - cur)}</Pill>}
-                  </div>
-                  {edit
-                    ? <MoneyInput value={l.amount} onChange={(v) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, amount: v } : x)))} />
-                    : <b className="num">{mxn(cur)}</b>}
+      <Modal onClose={onClose} title="¿Qué pagos tienes que hacer?"
+        sub="Marca los que vas a pagar con este dinero. Los que marques se registran como pagados."
+        footer={<><button className="btn" onClick={() => { setErr(''); setStep('form') }}>Atrás</button><button className="btn pri big-action" onClick={afterPagos}>Continuar</button></>}>
+        <Dots n={2} />
+        {items.length === 0 ? <p className="note">No tienes pagos pendientes. Puedes agregarlos en <b>Mis pagos</b>.</p> : (
+          <>
+            {pays.length > 0 && (
+              <p style={{ margin: '4px 0' }}><button className="link edit" onClick={() => setPicked((p) => ({ ...p, ...Object.fromEntries(items.filter((i) => i.group === 'pay').map((i) => [i.key, { on: true, amount: String(i.need) }])) }))}>Seleccionar todos los pagos</button></p>
+            )}
+            {items.map((it) => {
+              const head = it.group !== g ? (g = it.group, <div className="grp" key={'g' + it.group}>{groupTitle[it.group]}</div>) : null
+              const v = val(it)
+              return (
+                <div key={it.key}>
+                  {head}
+                  <PickRow checked={v.on} onToggle={() => setPick(it, { on: !v.on })} title={it.title} sub={it.sub} amount={v.amount} onAmount={(a) => setPick(it, { amount: a, on: toNum(a) > 0 ? true : v.on })} />
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
+          </>
+        )}
+        <div className="callout" style={{ marginTop: 12 }}>
+          Pagarás <b>{mxn(chosenTotal)}</b> · Te quedan <b className={left < 0 ? 'bad-t' : ''}>{mxn(left)}</b>
         </div>
-        <div className={`callout ${diff === 0 ? 'good' : 'bad'}`}>
-          {diff === 0 ? '✅ Todo tu dinero tiene destino.' : diff > 0 ? `Te faltan ${mxn(diff / 100)} por repartir.` : `Te pasaste por ${mxn(-diff / 100)}.`}
-        </div>
+        {err && <p className="note bad-t" role="alert">{err}</p>}
       </Modal>
     )
   }
 
-  // ----- Paso 3: guardaditos -----
+  // ----- 3. Gastos personales -----
+  if (step === 'personal') {
+    const chips = [500, 1000, 2000, 3000, 5000].filter((c) => c <= left)
+    return (
+      <Modal onClose={onClose} title="¿Cuánto quieres para tus gastos personales?"
+        sub={`Te quedan ${mxn(left)}. Escribe cuánto quieres tener para gastar este mes (café, salidas, compras…).`}
+        footer={<><button className="btn" onClick={() => { setErr(''); setStep('pagos') }}>Atrás</button><button className="btn pri big-action" onClick={afterPersonal}>Continuar</button></>}>
+        <Dots n={3} />
+        <label className="f" style={{ marginTop: 6 }}>Para gastar
+          <MoneyInput className="amount-input" autoFocus value={personal} onChange={setPersonal} placeholder="$ 0" />
+        </label>
+        <div className="chips">
+          {chips.map((c) => <button key={c} type="button" className={`chipbtn ${persN === c ? 'on' : ''}`} onClick={() => setPersonal(String(c))}>{mxn0(c)}</button>)}
+          <button type="button" className={`chipbtn ${persN === 0 && personal !== '' ? 'on' : ''}`} onClick={() => setPersonal('0')}>Nada por ahora</button>
+        </div>
+        <div className="callout" style={{ marginTop: 14 }}>
+          {persN > left ? <span className="bad-t">Es más de lo que te queda.</span> : <>Después de esto te sobran <b>{mxn(Math.max(0, rest))}</b> para ahorrar o invertir.</>}
+        </div>
+        {err && <p className="note bad-t" role="alert">{err}</p>}
+      </Modal>
+    )
+  }
+
+  // ----- 4. Ahorro e inversión -----
+  if (step === 'ahorro') {
+    return (
+      <Modal onClose={onClose} title="Lo que sobra: ¿ahorro o inversión?"
+        sub={`Te sobran ${mxn(rest)}. Decide cuánto guardas y cuánto inviertes.`}
+        footer={<><button className="btn" onClick={() => setStep('personal')}>Atrás</button><button className="btn pri big-action" disabled={invN < 0 || savN < 0} onClick={() => setStep('resumen')}>Continuar</button></>}>
+        <Dots n={4} />
+        <div className="chips" style={{ marginBottom: 10 }}>
+          <button type="button" className="chipbtn" onClick={() => setSav(String(rest))}>Todo a ahorro</button>
+          <button type="button" className="chipbtn" onClick={() => setSav(String(r2(rest / 2)))}>Mitad y mitad</button>
+          <button type="button" className="chipbtn" onClick={() => setSav('0')}>Todo a inversión</button>
+        </div>
+        <div className="form">
+          <label className="f">🌱 Ahorro
+            <MoneyInput value={sav} onChange={(v) => setSav(toNum(v) > rest ? String(rest) : v)} placeholder="$ 0" />
+          </label>
+          <label className="f">📈 Inversión
+            <MoneyInput value={invN > 0 ? String(invN) : ''} onChange={(v) => setSav(String(r2(rest - Math.min(toNum(v), rest))))} placeholder="$ 0" />
+          </label>
+        </div>
+        <div className="callout good" style={{ marginTop: 14 }}>✅ Ahorro {mxn(savN)} + Inversión {mxn(Math.max(0, invN))} = {mxn(rest)}</div>
+      </Modal>
+    )
+  }
+
+  // ----- 5. Resumen -----
+  if (step === 'resumen') {
+    const L = ({ label, v, tone }) => <div className="propline"><div className="n">{label}</div><b className={`num ${tone || ''}`}>{mxn(v)}</b></div>
+    const payItems = chosen.filter((i) => i.group === 'pay'), goalItems = chosen.filter((i) => i.group === 'goal'), loanItems = chosen.filter((i) => i.group === 'loan')
+    return (
+      <Modal onClose={onClose} title="Revisa y confirma"
+        sub={`De tus ${mxn(amount)}${assign ? '' : ` que llegaron a ${accName}`}, esto es lo que va a pasar:`}
+        footer={<><button className="btn" onClick={() => setStep(left <= 0 ? 'pagos' : rest > 0 ? 'ahorro' : 'personal')}>Atrás</button>
+          <button className="btn pri big-action" disabled={busy} onClick={confirm}>Confirmar</button></>}>
+        <Dots n={5} />
+        {payItems.length > 0 && <><div className="grp">Pagos que se marcan como pagados</div>{payItems.map((i) => <L key={i.key} label={i.title} v={toNum(val(i).amount)} />)}</>}
+        {goalItems.length > 0 && <><div className="grp">Abonos a metas</div>{goalItems.map((i) => <L key={i.key} label={i.title} v={toNum(val(i).amount)} />)}</>}
+        {loanItems.length > 0 && <><div className="grp">Préstamo familiar</div>{loanItems.map((i) => <L key={i.key} label={i.title} v={toNum(val(i).amount)} />)}</>}
+        <div className="grp">Para ti</div>
+        <L label="🛍️ Para gastar este mes" v={persN} />
+        {rest > 0 && <L label="🌱 Ahorro" v={savN} />}
+        {rest > 0 && <L label="📈 Inversión" v={Math.max(0, invN)} />}
+        <div className="callout good" style={{ marginTop: 12 }}>✅ Todo tu dinero tiene destino.</div>
+      </Modal>
+    )
+  }
+
+  // ----- 6. Listo + guardaditos -----
   const moves = D.pending_moves.filter((m) => m.income_id === incomeId && !m.done_at)
   return (
-    <Modal onClose={onClose} title="✅ ¡Listo! Tu ingreso quedó repartido"
-      sub={moves.length ? 'Ahora haz estos guardaditos en la app de tu banco:' : 'Todo quedó apartado dentro de la app.'}
+    <Modal onClose={onClose} title="✅ ¡Listo!"
+      sub={moves.length ? 'Ahora haz estos guardaditos en la app de tu banco:' : (assign ? 'Tu dinero ya tiene destino.' : 'Tu ingreso quedó registrado y repartido.')}
       footer={<button className="btn pri big-action" onClick={onClose}>{moves.length ? 'Los haré después' : 'Cerrar'}</button>}>
       {moves.length > 0 && <BankSteps moves={moves} />}
       {moves.length > 0 && <p className="note">Si te sales, estos pasos te esperan en la pantalla de Inicio.</p>}
@@ -335,20 +461,17 @@ export function AddMenu({ ctx, onClose }) {
       <div className="stack">
         <button className="bigbtn" onClick={go(ctx.openIncome)}><span>💰</span><div><b>Me llegó dinero</b><div className="note">Sueldo u otro ingreso</div></div></button>
         <button className="bigbtn" onClick={go(ctx.openExpense)}><span>🧾</span><div><b>Gasté algo</b><div className="note">Café, comida, compras…</div></div></button>
-        <button className="bigbtn" onClick={() => { onClose(); nav('/pagos') }}><span>✅</span><div><b>Pagué una cuenta fija</b><div className="note">Renta, carro, servicios…</div></div></button>
+        <button className="bigbtn" onClick={() => { onClose(); nav('/pagos') }}><span>✅</span><div><b>Pagué algo de mis pagos</b><div className="note">Renta, carro, servicios…</div></div></button>
       </div>
     </Modal>
   )
 }
 
-// Normaliza las líneas de propuesta a cadenas editables
-export const normalizeLines = (ls) => ls.map((l) => ({ ...l, amount: String(r2(l.amount) || '') }))
-
 // Elimina un apartado; si ya tiene historial lo archiva (y exige que su saldo esté en cero).
 export async function removeEnvelope(D, e) {
   const bal = totals(D).env[e.id]?.balance || 0
-  if (Math.abs(bal) >= 0.5) {
-    window.alert(`"${e.name}" tiene ${mxn(bal)} apartados. Primero pasa ese dinero a otro apartado (botón "Mover dinero") y luego podrás quitarlo.`)
+  if (HOLDS.includes(e.kind) && Math.abs(bal) >= 0.5) {
+    window.alert(`"${e.name}" tiene ${mxn(bal)} guardados. Primero pasa ese dinero a otro destino (botón "Mover dinero") y luego podrás quitarlo.`)
     return
   }
   const used = D.allocations.some((a) => a.envelope_id === e.id) || D.transactions.some((t) => t.envelope_id === e.id) || D.loans.some((l) => l.envelope_id === e.id)

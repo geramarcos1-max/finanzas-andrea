@@ -14,9 +14,10 @@ export default function Personal() {
   const T = totals(D)
   if (!env) return null
 
-  const monthly = Number(env.monthly_amount)
   const spent = spentIn(D, env.id, month)
   const balance = T.env[env.id]?.balance || 0
+  const setAside = allocatedIn(D, env.id, month)
+  const monthly = Math.max(setAside, spent)
   const list = D.transactions.filter((t) => t.envelope_id === env.id && t.kind === 'expense' && t.date.startsWith(month))
     .sort((a, b) => (a.date < b.date ? 1 : -1))
   const byCat = {}
@@ -28,13 +29,13 @@ export default function Personal() {
 
   return (
     <>
-      <PageHead title="Mis gastos" sub={`Cada mes se aparta ${mxn0(monthly)} para ti. Registra aquí en qué los usas.`}>
+      <PageHead title="Mis gastos" sub="Cada vez que te llega dinero tú decides cuánto separar para gastar. Aquí registras en qué lo usas.">
         <button className="btn pri" onClick={() => setModal({})}>+ Registrar gasto</button>
       </PageHead>
       <div className="kpis">
         <Kpi label="Gastado" value={mxn0(spent)} hint={`en el mes elegido`} />
         <Kpi label="Te queda para gastar" value={mxn0(balance)} tone={balance < 0 ? 'bad' : 'good'} hint="Lo no gastado se acumula" />
-        <Kpi label="Apartado este mes" value={mxn0(allocatedIn(D, env.id, month))} hint={`de ${mxn0(monthly)}`} />
+        <Kpi label="Separaste este mes" value={mxn0(setAside)} hint="Para tus gastos" />
         <div className="kpi" style={{ gridColumn: 'span 2' }}>
           <div className="l">Uso del mes</div>
           <div style={{ marginTop: 12 }}><Bar value={spent} max={monthly} tone={spent > monthly ? 'bad' : spent > monthly * 0.8 ? 'warn' : 'good'} /></div>

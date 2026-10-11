@@ -1,66 +1,26 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useData } from '../lib/DataContext'
-import { DEFAULT_PRIORITY, GROUPS } from '../lib/calc'
 import { mxn0, today } from '../lib/format'
-import { Empty, FormModal, Item, PageHead, Pill, confirmDel, run, toast } from '../ui'
+import { FormModal, Item, PageHead, confirmDel, run, toast } from '../ui'
 
 function Rules({ D }) {
   const [open, setOpen] = useState(false)
-  const personal = D.envelopes.find((e) => e.kind === 'personal')
-  const emergency = D.envelopes.find((e) => e.kind === 'emergency')
   const s = D.settings
-  const fields = [
-    { key: 'personal', label: 'Gastos personales al mes', type: 'money' },
-    { key: 'emergency', label: 'Aporte mensual al fondo de emergencia', type: 'money' },
-    { key: 'pct', label: '% de cada ingreso a largo plazo', type: 'number', min: 0, max: 100 },
-    { key: 'loan', label: 'Límite de préstamo por persona al mes', type: 'money' },
-  ]
   async function save(v) {
-    const r = await Promise.all([
-      supabase.from('envelopes').update({ monthly_amount: v.personal || 0 }).eq('id', personal.id),
-      supabase.from('envelopes').update({ monthly_amount: v.emergency || 0 }).eq('id', emergency.id),
-      supabase.from('settings').upsert({ id: 1, longterm_pct: Number(v.pct) || 0, loan_limit: v.loan || 0, priority: s.priority }),
-    ])
-    const bad = r.find((x) => x.error)
-    if (bad) return bad.error.message
-    await D.reload(); toast('Reglas guardadas'); return true
+    const { error } = await supabase.from('settings').upsert({ id: 1, loan_limit: v.loan || 0 })
+    if (error) return error.message
+    await D.reload(); toast('Guardado'); return true
   }
   return (
     <>
-      <h2>Reglas del reparto</h2>
+      <h2>Préstamos familiares</h2>
       <div className="list">
-        <Item title="Gastos personales al mes" right={mxn0(personal?.monthly_amount)} />
-        <Item title="Aporte mensual al fondo de emergencia" right={mxn0(emergency?.monthly_amount)} />
-        <Item title="% de cada ingreso a largo plazo" right={`${s.longterm_pct}%`} />
-        <Item title="Límite de préstamo por persona al mes" right={mxn0(s.loan_limit)} />
+        <Item title="Límite para prestar por persona al mes" right={mxn0(s.loan_limit)} />
       </div>
-      <p style={{ marginTop: 10 }}><button className="btn" onClick={() => setOpen(true)}>Editar reglas</button></p>
-      {open && <FormModal title="Reglas del reparto" fields={fields} onClose={() => setOpen(false)} onSave={save}
-        initial={{ personal: String(personal?.monthly_amount || ''), emergency: String(emergency?.monthly_amount || ''), pct: s.longterm_pct, loan: String(s.loan_limit || '') }} />}
-    </>
-  )
-}
-
-function Priority({ D }) {
-  const order = [...(D.settings.priority || []), ...DEFAULT_PRIORITY].filter((g, i, a) => a.indexOf(g) === i && GROUPS[g])
-  async function move(i, d) {
-    const j = i + d
-    if (j < 0 || j >= order.length) return
-    const next = [...order]; [next[i], next[j]] = [next[j], next[i]]
-    await run(supabase.from('settings').upsert({ id: 1, longterm_pct: D.settings.longterm_pct, loan_limit: D.settings.loan_limit, priority: next }), D.reload, 'Orden guardado')
-  }
-  return (
-    <>
-      <h2>Orden del reparto</h2>
-      <p className="note">Cada ingreso cubre primero lo que está arriba y luego baja. Lo que sobre al final va a tu ahorro para el futuro.</p>
-      <div className="list">
-        {order.map((g, i) => (
-          <Item key={g} title={<><Pill>{i + 1}</Pill> {GROUPS[g]}</>}
-            actions={<><button className="btn sm" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Subir">↑</button>
-              <button className="btn sm" disabled={i === order.length - 1} onClick={() => move(i, 1)} aria-label="Bajar">↓</button></>} />
-        ))}
-      </div>
+      <p style={{ marginTop: 10 }}><button className="btn" onClick={() => setOpen(true)}>Cambiar límite</button></p>
+      {open && <FormModal title="Límite de préstamos" fields={[{ key: 'loan', label: 'Límite por persona al mes', type: 'money' }]} onClose={() => setOpen(false)} onSave={save}
+        initial={{ loan: String(s.loan_limit || '') }} />}
     </>
   )
 }
@@ -193,9 +153,8 @@ export default function Settings() {
   const D = useData()
   return (
     <>
-      <PageHead title="Configuración" sub="Reglas que usa el sistema para proponer el reparto de cada ingreso." />
+      <PageHead title="Configuración" sub="Ajustes generales de la app." />
       <Rules D={D} />
-      <Priority D={D} />
       <Sources D={D} />
       <Categories D={D} />
       <Access />

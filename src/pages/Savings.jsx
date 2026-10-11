@@ -1,22 +1,22 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useData } from '../lib/DataContext'
 import { allocatedIn, ledgerOf, totals } from '../lib/calc'
-import { fmtDate, mxn, mxn0, pct, today } from '../lib/format'
+import { fmtDate, mxn, mxn0, today } from '../lib/format'
 import { ExpenseModal, MoveModal } from '../flows'
-import { Link } from 'react-router-dom'
-import { Bar, Empty, FormModal, Item, Kpi, PageHead, confirmDel, opts, run } from '../ui'
+import { Empty, FormModal, Item, Kpi, PageHead, confirmDel, opts, run } from '../ui'
 
-// Fondo de emergencia y ahorro a largo plazo (mismo comportamiento, distinto texto)
+// Ahorro e inversión (mismo comportamiento, distinto texto)
 const TEXT = {
-  emergency: {
-    title: 'Colchón para imprevistos',
-    sub: (e, pctLT) => `Cada mes se apartan ${mxn0(e.monthly_amount)} para imprevistos.`,
-    use: 'Usé del fondo', useTitle: 'Usar dinero del fondo',
+  savings: {
+    title: 'Mi ahorro', ico: '🌱',
+    sub: 'Dinero que guardas sin un fin específico. Recibe lo que decidas ahorrar cada vez que te llega dinero.',
+    use: 'Retiré para gastar', useTitle: 'Retirar para gastar',
   },
-  longterm: {
-    title: 'Ahorro para el futuro',
-    sub: (e, pctLT) => `Dinero sin fecha de uso. Recibe el ${pctLT}% de cada ingreso y todo lo que sobra después de cubrir lo demás.`,
+  investment: {
+    title: 'Mi inversión', ico: '📈',
+    sub: 'Dinero que apartas para invertir. Aquí ves cuánto has destinado a invertir.',
     use: 'Retiré para gastar', useTitle: 'Retirar para gastar',
   },
 }
@@ -32,7 +32,6 @@ export default function Savings({ kind }) {
   const bal = T.env[env.id]?.balance || 0
   const MES = today().slice(0, 7)
   const ledger = ledgerOf(D, env.id)
-  const target = Number(env.target_amount) || 0
 
   async function remove(l) {
     if (confirmDel('este movimiento')) await run(supabase.from(l.del).delete().eq('id', l.id), D.reload, 'Eliminado')
@@ -41,20 +40,19 @@ export default function Savings({ kind }) {
   return (
     <>
       <Link to="/ahorros" className="note">← Mis ahorros</Link>
-      <PageHead title={tx.title} sub={tx.sub(env, D.settings.longterm_pct)}>
+      <PageHead title={`${tx.ico} ${tx.title}`} sub={tx.sub}>
         <button className="btn" onClick={() => setModal('move')}>Mover dinero</button>
         <button className="btn pri" onClick={() => setModal('use')}>{tx.use}</button>
       </PageHead>
       <div className="kpis">
-        <Kpi label="Saldo" value={mxn0(bal)} tone={bal < 0 ? 'bad' : ''} />
-        <Kpi label="Aporte mensual" value={mxn0(env.monthly_amount)} hint={<button className="link edit" onClick={() => setEdit(true)}>Cambiar</button>} />
-        <Kpi label="Este mes" value={mxn0(allocatedIn(D, env.id, MES))} hint="Aportado" />
-        {target > 0 && <Kpi label="Meta del fondo" value={mxn0(target)} hint={`${pct((bal / target) * 100)} · faltan ${mxn0(Math.max(0, target - bal))}`} />}
+        <Kpi label="Llevas" value={mxn0(bal)} tone={bal < 0 ? 'bad' : ''} />
+        <Kpi label="Este mes" value={mxn0(allocatedIn(D, env.id, MES))} hint="Lo que agregaste" />
+        <Kpi label="¿Dónde lo guardas?" value={D.accounts.find((a) => a.id === env.account_id)?.name || 'Donde me llega'}
+          hint={<button className="link edit" onClick={() => setEdit(true)}>Cambiar</button>} />
       </div>
-      {target > 0 && <div style={{ marginTop: 12 }}><Bar value={bal} max={target} tone="good" /></div>}
       <h2>Movimientos</h2>
       <div className="list">
-        {ledger.length === 0 ? <Empty>Sin movimientos. Los aportes llegan al repartir tus ingresos.</Empty> : ledger.map((l) => (
+        {ledger.length === 0 ? <Empty>Aún no hay movimientos. Se agregan cuando registras un ingreso.</Empty> : ledger.map((l) => (
           <Item key={l.id} title={l.label} sub={`${fmtDate(l.date)}${l.sub ? ' · ' + l.sub : ''}`}
             right={<span className={l.amount < 0 ? 'bad-t' : 'good-t'}>{l.amount > 0 ? '+' : ''}{mxn(l.amount)}</span>}
             actions={l.del ? <button className="link" onClick={() => remove(l)}>Eliminar</button> : null} />
@@ -63,14 +61,11 @@ export default function Savings({ kind }) {
       {modal === 'use' && <ExpenseModal envId={env.id} title={tx.useTitle} onClose={() => setModal(null)} />}
       {modal === 'move' && <MoveModal toEnvId={env.id} onClose={() => setModal(null)} />}
       {edit && (
-        <FormModal title={`Ajustes de ${tx.title.toLowerCase()}`} onClose={() => setEdit(false)}
-          fields={[
-            { key: 'monthly_amount', label: 'Aporte mensual', type: 'money', required: kind === 'emergency' },
-            { key: 'account_id', label: '¿Dónde guardas este dinero?', type: 'select', options: [{ value: '', label: 'En la cuenta donde me llega' }, ...opts(D.accounts.filter((a) => !a.archived))] },
-            ...(kind === 'emergency' ? [{ key: 'target_amount', label: 'Meta del fondo (opcional)', type: 'money', placeholder: 'Ej. 50,000' }] : []),
-          ]}
-          initial={{ monthly_amount: String(env.monthly_amount || ''), target_amount: env.target_amount ? String(env.target_amount) : '', account_id: env.account_id || '' }}
-          onSave={async (v) => (await run(supabase.from('envelopes').update({ monthly_amount: v.monthly_amount || 0, account_id: v.account_id || null, ...(kind === 'emergency' ? { target_amount: v.target_amount > 0 ? v.target_amount : null } : {}) }).eq('id', env.id), D.reload, 'Guardado')) ? true : 'No se pudo guardar'} />
+        <FormModal title={`¿Dónde guardas ${tx.title.toLowerCase()}?`} onClose={() => setEdit(false)}
+          sub="Si lo guardas en una cajita o cuenta aparte del banco, la app te recordará pasar el dinero ahí cada vez."
+          fields={[{ key: 'account_id', label: 'Cuenta', type: 'select', options: [{ value: '', label: 'En la cuenta donde me llega' }, ...opts(D.accounts.filter((a) => !a.archived))] }]}
+          initial={{ account_id: env.account_id || '' }}
+          onSave={async (v) => (await run(supabase.from('envelopes').update({ account_id: v.account_id || null }).eq('id', env.id), D.reload, 'Guardado')) ? true : 'No se pudo guardar'} />
       )}
     </>
   )

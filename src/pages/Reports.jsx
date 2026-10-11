@@ -5,7 +5,7 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { useData } from '../lib/DataContext'
-import { allocatedIn, debtInfo, netWorth, neededFor, envelopeStats, r2, spentIn, totals } from '../lib/calc'
+import { debtInfo, netWorth, envelopeStats, spentIn, totals } from '../lib/calc'
 import {
   PERIODS, addDays, diffDays, fmtDate, fmtMonthShort, iso, monthFirst, monthKey, mxn, mxn0, pct, periodRange, previousRange, today,
 } from '../lib/format'
@@ -73,22 +73,18 @@ export default function Reports({ ctx }) {
     return { inc: sumA(cur.i), exp: sumA(cur.e), pInc: sumA(pre.i), pExp: sumA(pre.e), days, prevDays, line, monthly, cats }
   }, [D.incomes, D.transactions, D.categories, D.envelopes, acc, range.from, range.to])
 
-  const savings = m.inc - m.exp
+  const periodSavings = m.inc - m.exp
 
   // Estado del mes en curso
   const active = D.envelopes.filter((e) => !e.archived)
   const personal = active.find((e) => e.kind === 'personal')
-  const emergency = active.find((e) => e.kind === 'emergency')
-  const longterm = active.find((e) => e.kind === 'longterm')
+  const savings = active.find((e) => e.kind === 'savings')
+  const investment = active.find((e) => e.kind === 'investment')
   const bills = active.filter((e) => e.kind === 'fixed' || e.kind === 'debt')
   const paidCount = bills.filter((e) => spentIn(D, e.id, MES) >= (Number(e.monthly_amount) || 0) - 0.005 && Number(e.monthly_amount) > 0).length
   const goals = active.filter((e) => e.kind === 'goal')
   const debts = bills.filter((e) => e.kind === 'debt')
-
   const now = envelopeStats(D)
-  const before = envelopeStats(D, MES + '-01')
-  const needTotal = active.filter((e) => e.kind !== 'longterm').reduce((s, e) => s + neededFor(e, D, MES, now, before), 0)
-  const fundedTotal = active.filter((e) => e.kind !== 'longterm').reduce((s, e) => s + Math.min(allocatedIn(D, e.id, MES), neededFor(e, D, MES, now, before)), 0)
 
   return (
     <>
@@ -99,11 +95,9 @@ export default function Reports({ ctx }) {
         <Kpi label="Disponible para ti" value={mxn0(personal ? now[personal.id]?.balance : 0)}
           tone={personal && now[personal.id]?.balance < 0 ? 'bad' : ''}
           hint={`Gastado este mes ${mxn0(personal ? spentIn(D, personal.id, MES) : 0)}`} onClick={() => nav('/personales')} />
-        <Kpi label="Pagos del mes" value={`${paidCount} de ${bills.filter((e) => Number(e.monthly_amount) > 0).length}`} hint="Gastos fijos y deudas pagados" onClick={() => nav('/pagos')} />
-        <Kpi label="Reparto del mes" value={`${pct(needTotal ? (fundedTotal / needTotal) * 100 : 0)}`} hint={`Apartado ${mxn0(fundedTotal)} de ${mxn0(needTotal)}`} />
-        <Kpi label="Colchón para imprevistos" value={mxn0(emergency ? now[emergency.id]?.balance : 0)}
-          hint={emergency?.target_amount ? `${pct(((now[emergency.id]?.balance || 0) / emergency.target_amount) * 100)} de ${mxn0(emergency.target_amount)}` : `${mxn0(emergency?.monthly_amount || 0)} al mes`} onClick={() => nav('/emergencia')} />
-        <Kpi label="Ahorro para el futuro" value={mxn0(longterm ? now[longterm.id]?.balance : 0)} hint={`${D.settings.longterm_pct}% de cada ingreso + lo que sobre`} onClick={() => nav('/largo-plazo')} />
+        <Kpi label="Pagos del mes" value={`${paidCount} de ${bills.filter((e) => Number(e.monthly_amount) > 0).length}`} hint="Pagos pagados este mes" onClick={() => nav('/pagos')} />
+        <Kpi label="Mi ahorro" value={mxn0(savings ? now[savings.id]?.balance : 0)} onClick={() => nav('/ahorro')} />
+        <Kpi label="Mi inversión" value={mxn0(investment ? now[investment.id]?.balance : 0)} onClick={() => nav('/inversion')} />
       </div>
 
       <h2>Análisis</h2>
@@ -132,8 +126,8 @@ export default function Reports({ ctx }) {
       <div className="kpis">
         <Kpi label="Ingresos" value={mxn0(m.inc)} hint={compare ? <Delta cur={m.inc} prev={m.pInc} /> : null} />
         <Kpi label="Gastos" value={mxn0(m.exp)} hint={compare ? <Delta cur={m.exp} prev={m.pExp} invert /> : null} />
-        <Kpi label="Ahorro del período" value={mxn0(savings)} tone={savings < 0 ? 'bad' : ''}
-          hint={m.inc > 0 ? `Tasa de ahorro ${pct((savings / m.inc) * 100)}` : null} />
+        <Kpi label="Ahorro del período" value={mxn0(periodSavings)} tone={periodSavings < 0 ? 'bad' : ''}
+          hint={m.inc > 0 ? `Tasa de ahorro ${pct((periodSavings / m.inc) * 100)}` : null} />
         <Kpi label="Gasto promedio al día" value={mxn0(m.exp / m.days)} hint={compare ? <Delta cur={m.exp / m.days} prev={m.pExp / m.prevDays} invert /> : null} />
         <Kpi label="Ingreso promedio al día" value={mxn0(m.inc / m.days)} hint={compare ? <Delta cur={m.inc / m.days} prev={m.pInc / m.prevDays} /> : null} />
       </div>

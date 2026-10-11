@@ -16,7 +16,7 @@ export default function Loans() {
   const limit = Number(D.settings.loan_limit)
   const people = D.people.filter((p) => !p.archived)
   const accounts = D.accounts.filter((a) => !a.archived)
-  const envs = D.envelopes.filter((e) => !e.archived && e.kind !== 'debt')
+  const envs = D.envelopes.filter((e) => !e.archived && ['personal', 'goal', 'savings', 'investment'].includes(e.kind))
 
   const stats = (pid, month, excludeId) => {
     const ls = D.loans.filter((l) => l.person_id === pid && l.id !== excludeId)
@@ -33,6 +33,7 @@ export default function Loans() {
     { key: 'account_id', label: 'Cuenta', type: 'select', options: opts(accounts), required: true },
     { key: 'envelope_id', label: '¿De qué apartado sale?', type: 'select', show: (v) => v.kind === 'prestamo',
       options: [{ value: '', label: 'De ninguno (dinero sin destino)' }, ...opts(envs)] },
+    // Nota: al registrar un ingreso con "Me llegó dinero" el préstamo ya sale de ese dinero.
     { key: 'note', label: 'Nota', type: 'text', placeholder: 'Opcional' },
   ]
   const personal = envs.find((e) => e.kind === 'personal')
@@ -95,9 +96,16 @@ export default function Loans() {
           : { date: today(), person_id: people[0]?.id, kind: 'prestamo', amount: '', account_id: accounts[0]?.id, envelope_id: personal?.id || '', note: '' }}
         onSave={save(modal.editing)} />}
       {personModal && <FormModal title={personModal.editing ? 'Editar persona' : 'Agregar persona'} onClose={() => setPersonModal(null)}
-        fields={[{ key: 'name', label: 'Nombre', type: 'text', required: true, placeholder: 'Ej. Mamá' }]}
-        initial={personModal.editing ? { name: personModal.editing.name } : {}}
-        onSave={async (v) => (await run(personModal.editing ? supabase.from('people').update({ name: v.name.trim() }).eq('id', personModal.editing.id) : supabase.from('people').insert({ name: v.name.trim() }), D.reload, 'Guardado')) ? true : 'No se pudo guardar'} />}
+        fields={[
+          { key: 'name', label: 'Nombre', type: 'text', required: true, placeholder: 'Ej. Mamá' },
+          { key: 'monthly_amount', label: 'Abono mensual que le prestas (opcional)', type: 'money', placeholder: 'Ej. 1,000' },
+        ]}
+        initial={personModal.editing ? { name: personModal.editing.name, monthly_amount: personModal.editing.monthly_amount ? String(personModal.editing.monthly_amount) : '' } : {}}
+        onSave={async (v) => {
+          const row = { name: v.name.trim(), monthly_amount: v.monthly_amount || 0 }
+          if (v.monthly_amount > limit) return `El abono no puede ser mayor al límite de ${mxn0(limit)} al mes.`
+          return (await run(personModal.editing ? supabase.from('people').update(row).eq('id', personModal.editing.id) : supabase.from('people').insert(row), D.reload, 'Guardado')) ? true : 'No se pudo guardar'
+        }} />}
     </>
   )
 }

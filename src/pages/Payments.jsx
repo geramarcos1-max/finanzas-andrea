@@ -1,36 +1,32 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useData } from '../lib/DataContext'
-import { allocatedIn, cents, spentIn, totals } from '../lib/calc'
-import { fmtDate, mxn, mxn0, pct, today } from '../lib/format'
-import { ExpenseModal } from '../flows'
-import { Bar, Empty, Item, Kpi, PageHead, Pill, run } from '../ui'
+import { debtInfo, paymentsOf } from '../lib/calc'
+import { dueText } from '../lib/friendly'
+import { mxn, mxn0, pct, today } from '../lib/format'
+import { ExpenseModal, removeEnvelope } from '../flows'
+import { Bar, Empty, FormModal, Item, Kpi, PageHead, Pill, run } from '../ui'
 
+// "Mis pagos": se configuran los pagos que se repiten cada mes y funcionan como checklist.
 export default function Payments() {
   const D = useData()
   const MES = today().slice(0, 7)
   const [month, setMonth] = useState(MES)
   const [pay, setPay] = useState(null)
-  const T = totals(D)
+  const [modal, setModal] = useState(null)
   const day = new Date().getDate()
   const isCurrent = month === MES
   const isPast = month < MES
 
-  const items = D.envelopes.filter((e) => !e.archived && (e.kind === 'fixed' || e.kind === 'debt') && Number(e.monthly_amount) > 0)
-    .sort((a, b) => (a.due_day || 99) - (b.due_day || 99) || a.name.localeCompare(b.name))
-
-  const rows = items.map((e) => {
-    const need = Number(e.monthly_amount)
-    const paid = spentIn(D, e.id, month)
-    const done = cents(paid) >= cents(need)
-    const due = e.due_day
+  const rows = paymentsOf(D, month).map((r) => {
+    const due = r.e.due_day
     let status = ['Pendiente', '']
-    if (done) status = ['Pagado', 'good']
-    else if (paid > 0) status = ['Parcial', 'warn']
+    if (r.done) status = ['Pagado', 'good']
+    else if (r.paid > 0) status = ['Parcial', 'warn']
     else if (isPast) status = ['No pagado', 'bad']
     else if (isCurrent && due && due < day) status = ['Vencido', 'bad']
     else if (isCurrent && due && due - day <= 3) status = ['Vence pronto', 'warn']
-    return { e, need, paid, done, status, funded: allocatedIn(D, e.id, month) }
+    return { ...r, status }
   })
   const totalNeed = rows.reduce((s, r) => s + r.need, 0)
   const totalPaid = rows.reduce((s, r) => s + Math.min(r.paid, r.need), 0)
@@ -42,40 +38,75 @@ export default function Payments() {
     if (last) await run(supabase.from('transactions').delete().eq('id', last.id), D.reload, 'Pago deshecho')
   }
 
+  const fields = [
+    { key: 'kind', label: 'Tipo', type: 'select', options: [{ value: 'fixed', label: 'Pago fijo (renta, servicios, suscripción…)' }, { value: 'debt', label: 'Deuda con saldo (carro, préstamo…)' }] },
+    { key: 'name', label: '¿Qué pagas?', type: 'text', required: true, placeholder: 'Ej. Renta' },
+    { key: 'monthly_amount', label: 'Monto al mes', type: 'money', required: true },
+    { key: 'due_day', label: 'Día del mes en que se paga (1-31)', type: 'number', min: 1, max: 31, placeholder: 'Opcional' },
+    { key: 'debt_total', label: 'Monto total de la deuda', type: 'money', show: (v) => v.kind === 'debt', placeholder: 'Opcional' },
+    { key: 'debt_paid_before', label: 'Ya pagado antes de usar la app', type: 'money', show: (v) => v.kind === 'debt', placeholder: '0' },
+  ]
+  const save = (editing) => async (v) => {
+    const row = {
+      kind: v.kind, name: v.name.trim(), monthly_amount: v.monthly_amount, due_day: v.due_day ? Number(v.due_day) : null,
+      debt_total: v.kind === 'debt' && v.debt_total > 0 ? v.debt_total : null, debt_paid_before: v.kind === 'debt' ? v.debt_paid_before || 0 : 0,
+    }
+    const q = editing ? supabase.from('envelopes').update(row).eq('id', editing.id) : supabase.from('envelopes').insert(row)
+    return (await run(q, D.reload, 'Guardado')) ? true : 'No se pudo guardar'
+  }
+  const initialOf = (e) => ({
+    kind: e.kind, name: e.name, monthly_amount: String(e.monthly_amount || ''), due_day: e.due_day || '',
+    debt_total: e.debt_total ? String(e.debt_total) : '', debt_paid_before: e.debt_paid_before ? String(e.debt_paid_before) : '',
+  })
+
   return (
     <>
-      <PageHead title="Pagos del mes" sub="Marca cada pago cuando lo hagas para saber qué te falta este mes." />
+      <PageHead title="Mis pagos" sub="Lo que pagas cada mes. Agrégalo una vez y aquí lo vas marcando cuando lo pagues.">
+        <button className="btn pri" onClick={() => setModal({})}>+ Agregar pago</button>
+      </PageHead>
       <div className="filters">
         <label className="f">Mes<input type="month" value={month} onChange={(e) => setMonth(e.target.value || MES)} /></label>
         {!isCurrent && <button className="btn" onClick={() => setMonth(MES)}>Volver al mes actual</button>}
       </div>
       <div className="kpis">
         <Kpi label="Pagados" value={`${hechos} de ${rows.length}`} />
-        <Kpi label="Pagado" value={mxn0(totalPaid)} />
-        <Kpi label="Por pagar" value={mxn0(Math.max(0, totalNeed - totalPaid))} tone={totalNeed - totalPaid > 0 ? 'warn' : 'good'} />
+        <Kpi label="Ya pagaste" value={mxn0(totalPaid)} />
+        <Kpi label="Te falta pagar" value={mxn0(Math.max(0, totalNeed - totalPaid))} tone={totalNeed - totalPaid > 0 ? 'warn' : 'good'} />
         <div className="kpi"><div className="l">Avance</div><div style={{ marginTop: 12 }}><Bar value={hechos} max={rows.length} tone="good" /></div><div className="h">{pct(rows.length ? (hechos / rows.length) * 100 : 0)}% completado</div></div>
       </div>
-      <h2>Checklist</h2>
+
+      <h2>Checklist del mes</h2>
       <div className="list">
-        {rows.length === 0 ? <Empty>Agrega tus gastos fijos en la sección <b>Gastos fijos y deudas</b>.</Empty> : rows.map(({ e, need, paid, done, status, funded }) => {
-          const bal = T.env[e.id]?.balance || 0
+        {rows.length === 0 ? <Empty>Aún no tienes pagos. Toca <b>+ Agregar pago</b> y escribe, por ejemplo, tu renta o el pago del carro.</Empty> : rows.map(({ e, need, paid, done, status }) => {
+          const info = debtInfo(e, D)
           return (
             <Item key={e.id}
               title={<>{e.name} <Pill tone={status[1]}>{status[0]}</Pill></>}
-              sub={<>{e.due_day ? `Día ${e.due_day} · ` : ''}{e.kind === 'debt' ? 'Deuda · ' : ''}Apartado este mes {mxn0(funded)} de {mxn0(need)}{funded + 0.005 < need && !done ? ' ⚠️' : ''}</>}
-              right={paid > 0 && !done ? `${mxn(paid)}` : mxn(need)} rightSub={paid > 0 && !done ? `de ${mxn(need)}` : null}
-              actions={paid > 0
-                ? <button className="link" onClick={() => undo(e)}>Deshacer</button>
-                : null}>
-              {!done && <div style={{ marginTop: 6 }}><button className="btn pri sm" onClick={() => setPay({ e, need: need - paid, bal })}>Marcar pagado</button></div>}
+              sub={`${e.due_day ? 'Se paga el día ' + e.due_day + (isCurrent && !done ? ' · ' + dueText(e.due_day) : '') : 'Sin día fijo'}${e.kind === 'debt' ? ' · Deuda' : ''}`}
+              right={paid > 0 && !done ? mxn(paid) : mxn(need)} rightSub={paid > 0 && !done ? `de ${mxn(need)}` : null}
+              actions={<>
+                {paid > 0 && <button className="link" onClick={() => undo(e)}>Deshacer</button>}
+                <button className="link edit" onClick={() => setModal({ editing: e })}>Editar</button>
+                <button className="link" onClick={() => removeEnvelope(D, e)}>Quitar</button></>}>
+              {!done && <div style={{ marginTop: 6 }}><button className="btn pri sm" onClick={() => setPay({ e, need: Math.max(0, need - paid) })}>Marcar pagado</button></div>}
+              {info && (
+                <div style={{ marginTop: 8 }}>
+                  <Bar value={info.paid} max={info.total} tone="good" />
+                  <div className="note">Pagado {mxn0(info.paid)} de {mxn0(info.total)} · Faltan {mxn0(info.remaining)}
+                    {e.monthly_amount > 0 && info.remaining > 0 ? ` (~${Math.ceil(info.remaining / e.monthly_amount)} pagos)` : ''}</div>
+                </div>
+              )}
             </Item>
           )
         })}
       </div>
-      <p className="note" style={{ marginTop: 10 }}>Al marcar un pago, sale de la cuenta que elijas y de lo que apartaste para ese pago. Si pagas un monto distinto, puedes ajustarlo.</p>
-      {pay && <ExpenseModal envId={pay.e.id} title={`Pagar ${pay.e.name}`}
+      <p className="note" style={{ marginTop: 10 }}>También puedes marcar pagos al registrar un ingreso con <b>“Me llegó dinero”</b>. Al marcar un pago, sale de la cuenta que elijas.</p>
+
+      {pay && <ExpenseModal envId={pay.e.id} noCheck title={`Pagar ${pay.e.name}`}
         prefill={{ date: month === MES ? today() : `${month}-01`, amount: String(pay.need), note: pay.e.name }}
         onClose={() => setPay(null)} />}
+      {modal && <FormModal title={modal.editing ? 'Editar pago' : 'Nuevo pago'} fields={fields}
+        initial={modal.editing ? initialOf(modal.editing) : { kind: 'fixed' }} onSave={save(modal.editing)} onClose={() => setModal(null)} />}
     </>
   )
 }

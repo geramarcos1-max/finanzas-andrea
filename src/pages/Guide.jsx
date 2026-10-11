@@ -6,18 +6,18 @@ const SECTIONS = [
     t: '🌟 La idea en 1 minuto',
     body: (
       <>
-        <p>Cada vez que te llega dinero, lo repartes en <b>apartados</b>: una parte para tus pagos fijos, otra para tus gastos, otra para ahorrar. Después solo gastas de cada apartado.</p>
+        <p>Cada vez que te llega dinero, <b>tú decides a dónde va</b>, paso por paso: primero tus pagos, luego lo que quieres para gastar, y lo que sobra se guarda en ahorro o inversión.</p>
         <p>Así siempre sabes <b>cuánto puedes gastar sin meterte en problemas</b>, y tus ahorros salen primero, no con “lo que sobre”.</p>
       </>
     ),
   },
   {
-    t: '🚀 Cómo empezar (5 minutos)',
+    t: '🚀 Cómo empezar',
     body: (
       <ol>
         <li>La primera vez que entras, la app te pregunta cuánto dinero tienes hoy en tu banco y en efectivo. Solo se hace una vez; después puedes ajustarlo en <Link to="/cuentas">Mi dinero</Link>.</li>
-        <li>Ve a <Link to="/fijos">Pagos fijos</Link> y agrega lo que pagas cada mes: renta, carro, celular, internet…</li>
-        <li>Si tu banco tiene cajitas o apartados, créalos también en <Link to="/cuentas">Mi dinero</Link> como cuenta tipo <i>Ahorro</i>. Lo verás en “Los guardaditos”.</li>
+        <li>Ve a <Link to="/pagos">Mis pagos</Link> y agrega lo que pagas cada mes: renta, carro, celular, internet…</li>
+        <li>Si tu banco tiene cajitas o apartados, créalos en <Link to="/cuentas">Mi dinero</Link> como cuenta tipo <i>Ahorro</i>.</li>
         <li>Toca <b>“Me llegó dinero”</b> en Inicio y sigue los pasos.</li>
       </ol>
     ),
@@ -27,20 +27,20 @@ const SECTIONS = [
     body: (
       <ol>
         <li>Toca <b>“Me llegó dinero”</b>.</li>
-        <li>Escribe cuánto fue y de quién.</li>
-        <li>La app te propone cómo repartirlo. Si estás de acuerdo, toca <b>“Está bien, aceptar”</b>. Si quieres cambiar algo, toca <b>“Quiero cambiar algo”</b>.</li>
-        <li>Si guardas tu dinero en cajitas del banco, la app te dice qué movimientos hacer. Eso son los guardaditos.</li>
+        <li><b>Paso 1:</b> escribe cuánto fue y de quién.</li>
+        <li><b>Paso 2:</b> marca los pagos que vas a hacer con ese dinero (carro, renta, abonos a tus metas, préstamo familiar). Los que marques se registran como pagados.</li>
+        <li><b>Paso 3:</b> la app te dice cuánto te queda. Escribe cuánto quieres tener para tus gastos personales de este mes.</li>
+        <li><b>Paso 4:</b> lo que sobra lo repartes entre ahorro e inversión.</li>
+        <li><b>Paso 5:</b> revisa el resumen y confirma.</li>
       </ol>
     ),
   },
   {
-    t: '🏦 Los guardaditos en el banco',
+    t: '✅ Mis pagos',
     body: (
       <>
-        <p>La app lleva la cuenta de tus apartados, pero <b>el dinero real vive en tu banco</b>. Para que ambos coincidan, algunos apartados se guardan en una cajita o cuenta aparte.</p>
-        <p><b>Ejemplo:</b> te llegan $20,000 a tu cuenta Santander y $7,000 son para el carro. La app te dirá: <i>“Pasa $7,000 de Santander a tu cajita del Carro”</i>. Lo haces en la app de tu banco y luego tocas <b>“Ya lo hice ✓”</b>.</p>
-        <p>Los guardaditos que no hayas hecho aparecen en <b>Inicio → Por hacer</b>, para que no se te olviden.</p>
-        <p className="note">Para elegir en qué cuenta se guarda cada apartado, edítalo (en Pagos fijos, Mis metas o Ahorros) y busca “¿Dónde guardas este dinero?”.</p>
+        <p>En <Link to="/pagos">Mis pagos</Link> configuras lo que pagas cada mes (monto y día). Funciona como un checklist: cada pago aparece como <i>Pendiente</i>, <i>Vence pronto</i>, <i>Vencido</i> o <i>Pagado</i>.</p>
+        <p>Cuando pagues algo, toca <b>“Marcar pagado”</b>. Si te equivocas, toca <b>“Deshacer”</b>. También se marcan solos cuando los eliges al registrar tu dinero.</p>
       </>
     ),
   },
@@ -55,27 +55,29 @@ const SECTIONS = [
     ),
   },
   {
-    t: '✅ Pagar renta, carro y demás',
-    body: (
-      <>
-        <p>En <Link to="/pagos">Pagos</Link> ves lo que toca pagar este mes. Cuando pagues algo, toca <b>“Marcar pagado”</b>.</p>
-        <p>Si te equivocas, toca <b>“Deshacer”</b>.</p>
-      </>
-    ),
-  },
-  {
     t: '🚦 ¿Qué significa el semáforo?',
     body: (
       <ul>
         <li>🟢 <b>Vas muy bien:</b> te queda bastante dinero para gastar.</li>
         <li>🟡 <b>Cuidado:</b> te queda poco. Gasta con calma.</li>
-        <li>🔴 <b>Ya te pasaste:</b> gastaste más de lo que apartaste. Toma de otro apartado o espera tu siguiente ingreso.</li>
+        <li>🔴 <b>Ya te pasaste:</b> gastaste más de lo que separaste. Espera tu siguiente ingreso o mueve dinero desde otro lado.</li>
       </ul>
     ),
   },
   {
+    t: '🏦 Los guardaditos en el banco',
+    body: (
+      <>
+        <p>La app lleva la cuenta de tus ahorros, pero <b>el dinero real vive en tu banco</b>. Si guardas tu ahorro, tu inversión o una meta en una cajita o cuenta aparte, la app te dice qué movimiento hacer.</p>
+        <p><b>Ejemplo:</b> te llegan $20,000 a Santander y decides ahorrar $5,000. La app te dirá: <i>“Pasa $5,000 de Santander a tu cajita de ahorro”</i>. Lo haces en el banco y tocas <b>“Ya lo hice ✓”</b>.</p>
+        <p>Los guardaditos pendientes aparecen en <b>Inicio → Por hacer</b> para que no se te olviden.</p>
+        <p className="note">Para elegir en qué cuenta se guarda tu ahorro, inversión o una meta, entra a ese apartado y busca “¿Dónde guardas este dinero?”.</p>
+      </>
+    ),
+  },
+  {
     t: '🎯 Mis metas',
-    body: <p>Una meta es algo que quieres lograr, con un monto y una fecha. Por ejemplo, un viaje de $12,000 para marzo. La app calcula cuánto apartar cada mes y lo incluye cuando repartes tu dinero.</p>,
+    body: <p>Una meta es algo que quieres lograr, con un monto y una fecha: un viaje, una compra, o un colchón para imprevistos. La app calcula cuánto abonar cada mes y te lo sugiere en el paso 2 cuando te llega dinero.</p>,
   },
   {
     t: '🧮 Mis presupuestos',
@@ -83,14 +85,14 @@ const SECTIONS = [
   },
   {
     t: '🤝 Préstamos familiares',
-    body: <p>Anota cuando le prestas dinero a alguien y cuando te lo regresa. La app te avisa si te pasas del límite mensual que tú definiste.</p>,
+    body: <p>Anota cuando le prestas dinero a alguien y cuando te lo regresa. Puedes dejar un abono mensual para cada persona y aparecerá como opción en el paso 2. La app te avisa si te pasas del límite mensual.</p>,
   },
   {
     t: '🛠️ Me equivoqué, ¿cómo lo arreglo?',
     body: (
       <ul>
         <li>Casi todo tiene el botón <b>Editar</b> o <b>Eliminar</b>.</li>
-        <li>Si eliminas un ingreso, también se quita su reparto.</li>
+        <li>Si eliminas un ingreso, también se quita lo que repartiste con él. Los pagos que marcaste se quitan desde <Link to="/pagos">Mis pagos</Link> con “Deshacer”.</li>
         <li>Si algo no cuadra, revisa que el saldo de tus cuentas en <Link to="/cuentas">Mi dinero</Link> sea igual al de tu banco.</li>
       </ul>
     ),

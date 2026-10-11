@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import { supabase } from './supabase'
-import { DEFAULT_PRIORITY } from './calc'
+
 
 export const Ctx = createContext(null)
 export const useData = () => useContext(Ctx)
@@ -19,7 +19,7 @@ const TABLES = {
   category_budgets: ['category_id', true],
 }
 const EMPTY = Object.fromEntries(Object.keys(TABLES).map((k) => [k, []]))
-const DEFAULT_SETTINGS = { longterm_pct: 10, loan_limit: 1200, priority: DEFAULT_PRIORITY, setup_done: true }
+const DEFAULT_SETTINGS = { longterm_pct: 10, loan_limit: 1200, setup_done: true }
 
 export function DataProvider({ children }) {
   const [data, setData] = useState({ ...EMPTY, settings: DEFAULT_SETTINGS })

@@ -171,3 +171,11 @@ a.card.save:hover { background: var(--hover); }
     background: var(--ink); color: var(--bg); font-size: 30px; line-height: 1; box-shadow: 0 8px 22px rgba(0,0,0,.28); z-index: 25; cursor: pointer; }
   .item { padding: 14px 4px; }
 }
+
+/* ---------- Lista de pagos al registrar dinero ---------- */
+.pickrow { display: flex; gap: 12px; align-items: center; padding: 10px 6px; border-bottom: 1px solid var(--line); border-radius: 8px; }
+.pickrow.on { background: var(--accent-soft); }
+.pickrow .n { flex: 1; min-width: 0; }
+.pickrow input[type="checkbox"] { width: 22px; height: 22px; min-height: 0; flex: none; accent-color: var(--ink); }
+.pickrow input:not([type="checkbox"]) { width: 130px; text-align: right; }
+@media (max-width: 820px) { .pickrow input:not([type="checkbox"]) { width: 112px; } }

@@ -11,7 +11,6 @@ import Reports from './pages/Reports'
 import Incomes from './pages/Incomes'
 import Personal from './pages/Personal'
 import Payments from './pages/Payments'
-import Fixed from './pages/Fixed'
 import Savings from './pages/Savings'
 import Ahorros from './pages/Ahorros'
 import Budgets from './pages/Budgets'
@@ -61,9 +60,11 @@ function Shell({ session }) {
           <Route path="/cuentas" element={<Accounts ctx={ctx} />} />
           <Route path="/personales" element={<Personal />} />
           <Route path="/ingresos" element={<Incomes ctx={ctx} />} />
-          <Route path="/fijos" element={<Fixed />} />
-          <Route path="/emergencia" element={<Savings kind="emergency" />} />
-          <Route path="/largo-plazo" element={<Savings kind="longterm" />} />
+          <Route path="/ahorro" element={<Savings kind="savings" />} />
+          <Route path="/inversion" element={<Savings kind="investment" />} />
+          <Route path="/fijos" element={<Navigate to="/pagos" replace />} />
+          <Route path="/emergencia" element={<Navigate to="/ahorros" replace />} />
+          <Route path="/largo-plazo" element={<Navigate to="/ahorro" replace />} />
           <Route path="/metas" element={<Goals />} />
           <Route path="/presupuestos" element={<Budgets />} />
           <Route path="/prestamos" element={<Loans />} />

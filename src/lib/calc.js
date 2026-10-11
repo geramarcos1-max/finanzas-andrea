@@ -1,18 +1,15 @@
 // Toda la lógica de dinero vive aquí (funciones puras sobre los datos cargados).
+//
+// Modelo:
+//  - Cuentas: dónde está el dinero real. El "dinero total" es la suma de sus saldos.
+//  - Pagos recurrentes (apartados tipo fixed/debt): se pagan y salen de la cuenta (gasto).
+//  - Apartados con saldo (personal, metas, ahorro, inversión): dinero que sigue en las cuentas pero ya tiene destino.
+//  - Dinero sin destino = dinero total - suma de apartados con saldo.
 import { monthKey } from './format'
 
 export const cents = (n) => Math.round((Number(n) || 0) * 100)
 export const r2 = (n) => cents(n) / 100
 const amt = (x) => Number(x.amount) || 0
-
-export const GROUPS = {
-  obligations: 'Pagos fijos y deudas',
-  emergency: 'Colchón para imprevistos',
-  personal: 'Tu dinero para gastar',
-  goals: 'Tus metas',
-  longterm: 'Ahorro para el futuro',
-}
-export const DEFAULT_PRIORITY = ['obligations', 'emergency', 'personal', 'goals', 'longterm']
 
 export function accountBalances(D) {
   const m = {}
@@ -26,7 +23,7 @@ export function accountBalances(D) {
   return m
 }
 
-// Saldo de cada sobre. Si se pasa `before`, solo cuenta movimientos con fecha anterior.
+// Saldo de cada apartado. Si se pasa `before`, solo cuenta movimientos con fecha anterior.
 export function envelopeStats(D, before) {
   const s = {}
   D.envelopes.forEach((e) => { s[e.id] = { allocated: 0, spent: 0, lent: 0, balance: 0 } })
@@ -38,11 +35,14 @@ export function envelopeStats(D, before) {
   return s
 }
 
+// Solo los apartados con saldo cuentan para "dinero sin destino" (los pagos recurrentes salen directo de la cuenta).
+const HOLDS_BALANCE = new Set(['personal', 'goal', 'savings', 'investment'])
+
 export function totals(D) {
   const bal = accountBalances(D)
   const env = envelopeStats(D)
   const accounts = r2(Object.values(bal).reduce((a, b) => a + b, 0))
-  const enveloped = r2(Object.values(env).reduce((a, b) => a + b.balance, 0))
+  const enveloped = r2(D.envelopes.filter((e) => HOLDS_BALANCE.has(e.kind)).reduce((a, e) => a + (env[e.id]?.balance || 0), 0))
   return { bal, env, accounts, enveloped, unassigned: r2(accounts - enveloped) }
 }
 
@@ -70,76 +70,42 @@ export const allocatedIn = (D, envId, month) =>
 export const spentIn = (D, envId, month) =>
   r2(D.transactions.filter((t) => t.envelope_id === envId && t.kind === 'expense' && monthKey(t.date) === month).reduce((s, t) => s + amt(t), 0))
 
-// Cuánto hay que apartar en `month` para este sobre.
-// Para metas se usa el saldo al INICIO del mes, así la cuota no se mueve al llegar más ingresos.
+// Cuánto conviene abonar a una meta este mes.
+// Se usa el saldo al INICIO del mes, así la cuota no cambia si llegan varios ingresos.
 export function neededFor(e, D, month, statsNow, statsBefore) {
   const monthly = Number(e.monthly_amount) || 0
-  if (e.kind === 'goal') {
-    const target = Number(e.target_amount) || 0
-    if (!target) return monthly
-    const start = statsBefore[e.id]?.balance || 0
-    const remaining = target - start
-    if (remaining <= 0) return 0
-    if (!e.target_date) return Math.min(monthly, remaining)
-    const [y, m] = month.split('-').map(Number)
-    const d = new Date(e.target_date + 'T00:00')
-    const left = Math.max(1, (d.getFullYear() - y) * 12 + (d.getMonth() + 1 - m) + 1)
-    return Math.ceil(remaining / left)
-  }
-  if (e.kind === 'emergency' && e.target_amount && (statsNow[e.id]?.balance || 0) >= Number(e.target_amount)) return 0
-  if (e.kind === 'debt') {
-    const info = debtInfo(e, D)
-    if (info) return Math.min(monthly, info.remaining)
-  }
-  return monthly
+  const target = Number(e.target_amount) || 0
+  if (!target) return monthly
+  const start = statsBefore[e.id]?.balance || 0
+  const remaining = target - start
+  if (remaining <= 0) return 0
+  if (!e.target_date) return Math.min(monthly, remaining)
+  const [y, m] = month.split('-').map(Number)
+  const d = new Date(e.target_date + 'T00:00')
+  const left = Math.max(1, (d.getFullYear() - y) * 12 + (d.getMonth() + 1 - m) + 1)
+  return Math.ceil(remaining / left)
 }
 
-// Propuesta de reparto: respeta el orden de prioridades configurado.
-export function propose(D, settings, amount, date) {
-  const month = monthKey(date)
-  const now = envelopeStats(D)
-  const before = envelopeStats(D, month + '-01')
-  const priority = [...(settings.priority || []), ...DEFAULT_PRIORITY].filter((g, i, a) => a.indexOf(g) === i)
-  let rest = r2(amount)
-  const lines = []
-  const active = D.envelopes.filter((e) => !e.archived)
-
-  const take = (group, e, need) => {
-    const falta = Math.max(0, r2(need - allocatedIn(D, e.id, month)))
-    const v = Math.min(rest, falta)
-    rest = r2(rest - v)
-    lines.push({ group, envelope_id: e.id, name: e.name, amount: v, falta })
-  }
-  const byDay = (a, b) => (a.due_day || 99) - (b.due_day || 99) || a.name.localeCompare(b.name)
-  const byDate = (a, b) => (a.target_date || '9999').localeCompare(b.target_date || '9999')
-
-  const handlers = {
-    obligations: () => active.filter((e) => e.kind === 'fixed' || e.kind === 'debt').sort(byDay)
-      .forEach((e) => take('obligations', e, neededFor(e, D, month, now, before))),
-    emergency: () => active.filter((e) => e.kind === 'emergency').forEach((e) => take('emergency', e, neededFor(e, D, month, now, before))),
-    personal: () => active.filter((e) => e.kind === 'personal').forEach((e) => take('personal', e, neededFor(e, D, month, now, before))),
-    goals: () => active.filter((e) => e.kind === 'goal').sort(byDate)
-      .forEach((e) => { const n = neededFor(e, D, month, now, before); if (n > 0) take('goals', e, n) }),
-    longterm: () => active.filter((e) => e.kind === 'longterm').forEach((e) => {
-      const v = Math.min(rest, r2((amount * (Number(settings.longterm_pct) || 0)) / 100))
-      rest = r2(rest - v)
-      lines.push({ group: 'longterm', envelope_id: e.id, name: e.name, amount: v, falta: 0 })
-    }),
-  }
-  priority.forEach((g) => handlers[g]?.())
-
-  // Lo que sobre va a largo plazo
-  const lt = lines.find((l) => l.group === 'longterm') || (() => {
-    const e = active.find((x) => x.kind === 'longterm')
-    if (!e) return null
-    const l = { group: 'longterm', envelope_id: e.id, name: e.name, amount: 0, falta: 0 }
-    lines.push(l); return l
-  })()
-  if (lt) { lt.amount = r2(lt.amount + rest); lt.leftover = true }
-  return lines
+// Pagos recurrentes de un mes (checklist de "Mis pagos")
+export function paymentsOf(D, month) {
+  return D.envelopes
+    .filter((e) => !e.archived && (e.kind === 'fixed' || e.kind === 'debt') && Number(e.monthly_amount) > 0)
+    .map((e) => {
+      const info = debtInfo(e, D)
+      const need = e.kind === 'debt' && info ? Math.min(Number(e.monthly_amount), info.remaining) : Number(e.monthly_amount)
+      const paid = spentIn(D, e.id, month)
+      return { e, need, paid, remaining: Math.max(0, r2(need - paid)), done: cents(paid) >= cents(need) }
+    })
+    .sort((a, b) => (a.e.due_day || 99) - (b.e.due_day || 99) || a.e.name.localeCompare(b.e.name))
 }
 
-// Movimientos de un sobre (para mostrar historial)
+// Cuánto le queda por prestar a una persona este mes
+export function loanRoom(D, personId, month, limit) {
+  const lent = D.loans.filter((l) => l.person_id === personId && l.kind === 'prestamo' && monthKey(l.date) === month).reduce((s, l) => s + amt(l), 0)
+  return { lent, room: Math.max(0, r2(Number(limit) - lent)) }
+}
+
+// Movimientos de un apartado (para mostrar historial)
 export function ledgerOf(D, envId) {
   const src = (id) => D.income_sources.find((s) => s.id === id)?.name
   const acc = (id) => D.accounts.find((a) => a.id === id)?.name
@@ -148,7 +114,7 @@ export function ledgerOf(D, envId) {
   D.allocations.filter((a) => a.envelope_id === envId).forEach((a) => {
     const inc = a.income_id ? incomeById[a.income_id] : null
     const label = a.kind === 'income' ? `Aporte de ingreso${inc?.source_id ? ' · ' + src(inc.source_id) : ''}`
-      : a.kind === 'unassigned' ? 'Asignado de saldo disponible' : (a.note || 'Movimiento entre sobres')
+      : a.kind === 'unassigned' ? 'Dinero que ya tenía' : (a.note || 'Movimiento entre apartados')
     out.push({ id: a.id, date: a.date, label, amount: amt(a), del: a.kind === 'income' ? null : 'allocations' })
   })
   D.transactions.filter((t) => t.envelope_id === envId && t.kind === 'expense').forEach((t) => {

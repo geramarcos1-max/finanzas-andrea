@@ -44,7 +44,7 @@ export default function Payments() {
 
   return (
     <>
-      <PageHead title="Pagos del mes" sub="Marca cada gasto fijo y cada deuda cuando la pagues para saber qué te falta este mes." />
+      <PageHead title="Pagos del mes" sub="Marca cada pago cuando lo hagas para saber qué te falta este mes." />
       <div className="filters">
         <label className="f">Mes<input type="month" value={month} onChange={(e) => setMonth(e.target.value || MES)} /></label>
         {!isCurrent && <button className="btn" onClick={() => setMonth(MES)}>Volver al mes actual</button>}
@@ -72,7 +72,7 @@ export default function Payments() {
           )
         })}
       </div>
-      <p className="note" style={{ marginTop: 10 }}>Al marcar un pago, sale de la cuenta que elijas y del sobre de ese gasto. Si pagas un monto distinto, puedes ajustarlo.</p>
+      <p className="note" style={{ marginTop: 10 }}>Al marcar un pago, sale de la cuenta que elijas y de lo que apartaste para ese pago. Si pagas un monto distinto, puedes ajustarlo.</p>
       {pay && <ExpenseModal envId={pay.e.id} title={`Pagar ${pay.e.name}`}
         prefill={{ date: month === MES ? today() : `${month}-01`, amount: String(pay.need), note: pay.e.name }}
         onClose={() => setPay(null)} />}

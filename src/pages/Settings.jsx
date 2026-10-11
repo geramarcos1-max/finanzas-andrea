@@ -53,7 +53,7 @@ function Priority({ D }) {
   return (
     <>
       <h2>Orden del reparto</h2>
-      <p className="note">Cada ingreso cubre primero lo que está arriba y luego baja. Lo que sobre al final va a ahorro a largo plazo.</p>
+      <p className="note">Cada ingreso cubre primero lo que está arriba y luego baja. Lo que sobre al final va a tu ahorro para el futuro.</p>
       <div className="list">
         {order.map((g, i) => (
           <Item key={g} title={<><Pill>{i + 1}</Pill> {GROUPS[g]}</>}

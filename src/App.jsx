@@ -2,75 +2,86 @@ import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import { DataProvider, useData } from './lib/DataContext'
-import { IncomeFlow } from './flows'
+import { AddMenu, BankStepsModal, IncomeFlow, QuickExpense } from './flows'
+import { NAV } from './nav'
 import { Toaster } from './ui'
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
+import Home from './pages/Dashboard'
+import Reports from './pages/Reports'
 import Incomes from './pages/Incomes'
 import Personal from './pages/Personal'
 import Payments from './pages/Payments'
 import Fixed from './pages/Fixed'
 import Savings from './pages/Savings'
+import Ahorros from './pages/Ahorros'
 import Goals from './pages/Goals'
 import Loans from './pages/Loans'
 import Accounts from './pages/Accounts'
 import Settings from './pages/Settings'
+import Guide from './pages/Guide'
 import More from './pages/More'
-import { NAV } from './nav'
-
-const TABS = ['/', '/ingresos', '/personales', '/pagos']
 
 function Shell({ session }) {
   const D = useData()
   const [flow, setFlow] = useState(null)
   const month = new Date().toLocaleDateString('es-MX', { month: 'long', year: 'numeric' })
-  const open = (mode) => setFlow(mode || 'income')
 
   if (D.loading) return <div className="auth"><p className="note">Cargando…</p></div>
   if (D.error) return <div className="auth"><div className="modal"><h3>No pude cargar los datos</h3><p className="note">{D.error}</p><button className="btn" onClick={D.reload}>Reintentar</button></div></div>
 
-  const ctx = { openIncome: () => open('income'), openAssign: () => open('assign') }
+  const ctx = {
+    openIncome: () => setFlow('income'), openAssign: () => setFlow('assign'), openExpense: () => setFlow('expense'),
+    openBank: () => setFlow('bank'), openMenu: () => setFlow('menu'),
+  }
+  const close = () => setFlow(null)
   return (
     <div className="app">
       <aside>
         <div className="brand">Finanzas de Andrea<small>{month}</small></div>
         <nav className="side">
           {NAV.map((n, i) => n === '-' ? <div key={i} className="sep" /> : (
-            <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>{n.label}</NavLink>
+            <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>{n.ico} {n.label}</NavLink>
           ))}
         </nav>
-        <button className="btn pri cta" onClick={ctx.openIncome}>+ Registrar ingreso</button>
+        <button className="btn pri cta" onClick={ctx.openIncome}>💰 Me llegó dinero</button>
+        <button className="btn cta" onClick={ctx.openExpense}>🧾 Gasté algo</button>
         <div className="who note">{session.user.email}<br />
           <button className="link" onClick={() => supabase.auth.signOut()}>Cerrar sesión</button></div>
       </aside>
       <main>
         <Routes>
-          <Route path="/" element={<Dashboard ctx={ctx} />} />
-          <Route path="/ingresos" element={<Incomes ctx={ctx} />} />
-          <Route path="/personales" element={<Personal />} />
+          <Route path="/" element={<Home ctx={ctx} />} />
           <Route path="/pagos" element={<Payments />} />
+          <Route path="/ahorros" element={<Ahorros />} />
+          <Route path="/cuentas" element={<Accounts ctx={ctx} />} />
+          <Route path="/personales" element={<Personal />} />
+          <Route path="/ingresos" element={<Incomes ctx={ctx} />} />
           <Route path="/fijos" element={<Fixed />} />
           <Route path="/emergencia" element={<Savings kind="emergency" />} />
           <Route path="/largo-plazo" element={<Savings kind="longterm" />} />
           <Route path="/metas" element={<Goals />} />
           <Route path="/prestamos" element={<Loans />} />
-          <Route path="/cuentas" element={<Accounts ctx={ctx} />} />
+          <Route path="/reportes" element={<Reports ctx={ctx} />} />
+          <Route path="/guia" element={<Guide />} />
           <Route path="/config" element={<Settings />} />
           <Route path="/mas" element={<More email={session.user.email} />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>
       <nav className="tabbar">
-        {NAV.filter((n) => TABS.includes(n.to)).map((n) => (
+        {NAV.filter((n) => n.tab).map((n) => (
           <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>
-            <span className="ico">{n.ico}</span>{n.short || n.label}
+            <span className="ico">{n.ico}</span>{n.label}
           </NavLink>
         ))}
         <NavLink to="/mas" className={({ isActive }) => (isActive ? 'active' : '')}><span className="ico">☰</span>Más</NavLink>
       </nav>
-      {flow && <IncomeFlow mode={flow} onClose={() => setFlow(null)} />}
-      {/* acceso rápido en celular */}
-      <button className="btn pri fab" aria-label="Registrar ingreso" onClick={ctx.openIncome}>+ Ingreso</button>
+      <button className="fab" aria-label="Agregar" onClick={ctx.openMenu}>＋</button>
+      {flow === 'income' && <IncomeFlow mode="income" onClose={close} />}
+      {flow === 'assign' && <IncomeFlow mode="assign" onClose={close} />}
+      {flow === 'expense' && <QuickExpense onClose={close} />}
+      {flow === 'bank' && <BankStepsModal onClose={close} />}
+      {flow === 'menu' && <AddMenu ctx={ctx} onClose={close} />}
     </div>
   )
 }

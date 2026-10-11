@@ -114,3 +114,60 @@ label.f { font-size: 12px; color: var(--muted); font-weight: 500; display: flex;
   .propline input { width: 112px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+/* ---------- Versión amigable ---------- */
+.hero { padding: 22px 22px 20px; margin-bottom: 14px; }
+.huge { font-size: 46px; font-weight: 700; line-height: 1.1; letter-spacing: -.02em; margin: 4px 0 6px; }
+.light { font-weight: 600; font-size: 15px; }
+.light.good { color: var(--good); } .light.warn { color: var(--warn); } .light.bad { color: var(--bad); }
+.bigbtns { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 8px; }
+.bigbtn { display: flex; align-items: center; gap: 14px; text-align: left; width: 100%; padding: 16px 18px; border-radius: 14px;
+  border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-size: 15px; min-height: 64px; }
+.bigbtn:hover { background: var(--hover); }
+.bigbtn > span { font-size: 28px; line-height: 1; }
+.bigbtns .bigbtn { flex-direction: column; align-items: flex-start; gap: 8px; }
+.todo { display: flex; gap: 14px; align-items: center; width: 100%; text-align: left; background: var(--panel); border: 0; border-bottom: 1px solid var(--line);
+  padding: 14px 6px; cursor: pointer; min-height: 60px; }
+.todo:hover { background: var(--hover); }
+.todo .ico { font-size: 22px; width: 30px; text-align: center; }
+.todo .main { flex: 1; min-width: 0; } .todo .t { font-weight: 600; }
+.card.ok { background: var(--good-soft); border-color: transparent; color: var(--good); }
+.card.start { margin-bottom: 14px; background: var(--accent-soft); border-color: transparent; }
+.card.start ol { margin: 8px 0 12px; padding-left: 20px; } .card.start li { margin: 5px 0; }
+.card.start a:not(.btn) { color: var(--ink); font-weight: 600; }
+.saves { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+a.card.save { text-decoration: none; color: inherit; display: block; }
+a.card.save:hover { background: var(--hover); }
+.card.save .v { font-size: 24px; font-weight: 650; margin: 2px 0 6px; }
+.card.wide { width: 100%; }
+.bank { margin: 10px 0; background: var(--accent-soft); border-color: transparent; }
+.bank .big { font-size: 30px; }
+.grp .why { text-transform: none; letter-spacing: 0; font-weight: 400; margin-top: 2px; }
+.amount-input { font-size: 34px !important; font-weight: 650; padding: 14px 16px !important; }
+.catgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; margin-top: 6px; }
+.catbtn { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: 12px; border: 1.5px solid var(--line);
+  background: var(--panel); cursor: pointer; font-size: 12px; font-weight: 500; }
+.catbtn span { font-size: 24px; line-height: 1; }
+.catbtn.on { border-color: var(--ink); background: var(--hover); font-weight: 700; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.chipbtn { padding: 10px 18px; border-radius: 99px; border: 1.5px solid var(--line); background: var(--panel); cursor: pointer; font-weight: 600; }
+.chipbtn.on { border-color: var(--ink); background: var(--ink); color: var(--bg); }
+.btn.big-action { padding: 12px 22px; font-size: 15px; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.guide details { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); margin-bottom: 10px; }
+.guide summary { cursor: pointer; padding: 16px 18px; font-weight: 600; font-size: 15px; list-style: none; }
+.guide summary::-webkit-details-marker { display: none; }
+.guide summary::after { content: "+"; float: right; color: var(--muted); font-size: 18px; }
+.guide details[open] summary::after { content: "−"; }
+.guide .gbody { padding: 0 18px 16px; line-height: 1.65; }
+.guide .gbody a { color: var(--ink); font-weight: 600; }
+.fab { display: none; }
+@media (max-width: 820px) {
+  input, select, textarea { font-size: 16px; min-height: 44px; }
+  .btn { min-height: 44px; padding: 10px 16px; }
+  .btn.sm { min-height: 36px; }
+  .huge { font-size: 40px; }
+  .fab { display: grid; place-items: center; position: fixed; right: 18px; bottom: 82px; width: 56px; height: 56px; border-radius: 50%; border: 0;
+    background: var(--ink); color: var(--bg); font-size: 30px; line-height: 1; box-shadow: 0 8px 22px rgba(0,0,0,.28); z-index: 25; cursor: pointer; }
+  .item { padding: 14px 4px; }
+}

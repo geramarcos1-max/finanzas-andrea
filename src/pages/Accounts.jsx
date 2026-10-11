@@ -44,17 +44,17 @@ export default function Accounts({ ctx }) {
 
   return (
     <>
-      <PageHead title="Cuentas y patrimonio" sub="Tu dinero real: bancos, efectivo e inversiones. El patrimonio neto es lo que tienes menos lo que debes.">
+      <PageHead title="Mi dinero" sub="Dónde tienes tu dinero de verdad: bancos, cajitas, efectivo. Si tu banco tiene cajitas o apartados, créalos aquí como cuenta tipo Ahorro.">
         <button className="btn" disabled={list.length < 2} onClick={() => setTransfer(true)}>Transferir</button>
         <button className="btn pri" onClick={() => setModal({})}>+ Cuenta</button>
       </PageHead>
       <div className="kpis">
-        <Kpi label="Patrimonio neto" value={mxn0(NW.total)} />
-        <Kpi label="En cuentas" value={mxn0(NW.accounts)} />
-        <Kpi label="Te deben" value={mxn0(NW.owed)} hint="Préstamos familiares" />
+        <Kpi label="Lo que tengo en total" value={mxn0(NW.total)} />
+        <Kpi label="En mis cuentas" value={mxn0(NW.accounts)} />
+        <Kpi label="Me deben" value={mxn0(NW.owed)} hint="Préstamos familiares" />
         <Kpi label="Deudas" value={mxn0(NW.debts)} hint="Saldo pendiente (carro, etc.)" />
-        <Kpi label="Sin asignar" value={mxn0(T.unassigned)} tone={Math.abs(T.unassigned) < 0.5 ? '' : T.unassigned > 0 ? 'warn' : 'bad'}
-          hint={T.unassigned > 0.5 ? <button className="link edit" onClick={ctx.openAssign}>Asignar ahora</button> : 'Todo repartido en sobres'} />
+        <Kpi label="Dinero sin destino" value={mxn0(T.unassigned)} tone={Math.abs(T.unassigned) < 0.5 ? '' : T.unassigned > 0 ? 'warn' : 'bad'}
+          hint={T.unassigned > 0.5 ? <button className="link edit" onClick={ctx.openAssign}>Darle destino</button> : 'Todo tiene destino ✓'} />
       </div>
       <h2>Cuentas</h2>
       <div className="list">
@@ -75,7 +75,7 @@ export default function Accounts({ ctx }) {
         initial={modal.editing ? { name: modal.editing.name, type: modal.editing.type, initial_balance: String(T.bal[modal.editing.id] ?? 0) } : { type: 'bank', initial_balance: '' }}
         onSave={(v) => save(modal.editing, v)} />}
 
-      {transfer && <FormModal title="Transferir entre cuentas" sub="El dinero cambia de cuenta; tus sobres no se mueven." onClose={() => setTransfer(false)}
+      {transfer && <FormModal title="Transferir entre cuentas" sub="El dinero cambia de cuenta; tus apartados no cambian." onClose={() => setTransfer(false)}
         fields={[
           { key: 'date', label: 'Fecha', type: 'date', required: true },
           { key: 'account_id', label: 'De', type: 'select', options: opts(list) },

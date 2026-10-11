@@ -31,8 +31,8 @@ export default function Loans() {
     { key: 'kind', label: 'Movimiento', type: 'select', options: [{ value: 'prestamo', label: 'Le presté' }, { value: 'pago', label: 'Me pagó' }] },
     { key: 'amount', label: 'Monto', type: 'money', required: true },
     { key: 'account_id', label: 'Cuenta', type: 'select', options: opts(accounts), required: true },
-    { key: 'envelope_id', label: 'Sale del sobre', type: 'select', show: (v) => v.kind === 'prestamo',
-      options: [{ value: '', label: 'Ninguno (dinero sin asignar)' }, ...opts(envs)] },
+    { key: 'envelope_id', label: '¿De qué apartado sale?', type: 'select', show: (v) => v.kind === 'prestamo',
+      options: [{ value: '', label: 'De ninguno (dinero sin destino)' }, ...opts(envs)] },
     { key: 'note', label: 'Nota', type: 'text', placeholder: 'Opcional' },
   ]
   const personal = envs.find((e) => e.kind === 'personal')
@@ -59,7 +59,7 @@ export default function Loans() {
 
   return (
     <>
-      <PageHead title="Préstamos familiares" sub={`Puedes prestar hasta ${mxn0(limit)} por persona al mes. Los pagos que te hagan no liberan cupo del mes; regresan a tu cuenta como dinero sin asignar.`}>
+      <PageHead title="Préstamos familiares" sub={`Puedes prestar hasta ${mxn0(limit)} por persona al mes. Los pagos que te hagan no liberan cupo del mes; regresan a tu cuenta como dinero sin destino, listo para repartir.`}>
         <button className="btn" onClick={() => setPersonModal({})}>+ Persona</button>
         <button className="btn pri" disabled={!people.length} onClick={() => setModal({})}>+ Registrar movimiento</button>
       </PageHead>

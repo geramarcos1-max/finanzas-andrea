@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import { supabase } from './supabase'
 import { DEFAULT_PRIORITY } from './calc'
 
-const Ctx = createContext(null)
+export const Ctx = createContext(null)
 export const useData = () => useContext(Ctx)
 
 const TABLES = {
@@ -15,6 +15,7 @@ const TABLES = {
   transactions: ['date', false],
   people: ['created_at', true],
   loans: ['date', false],
+  pending_moves: ['created_at', true],
 }
 const EMPTY = Object.fromEntries(Object.keys(TABLES).map((k) => [k, []]))
 const DEFAULT_SETTINGS = { longterm_pct: 10, loan_limit: 1200, priority: DEFAULT_PRIORITY }

@@ -28,12 +28,12 @@ export default function Personal() {
 
   return (
     <>
-      <PageHead title="Gastos personales" sub={`Cada mes se aparta ${mxn0(monthly)} para ti. Registra aquí en qué los usas.`}>
+      <PageHead title="Mis gastos" sub={`Cada mes se aparta ${mxn0(monthly)} para ti. Registra aquí en qué los usas.`}>
         <button className="btn pri" onClick={() => setModal({})}>+ Registrar gasto</button>
       </PageHead>
       <div className="kpis">
         <Kpi label="Gastado" value={mxn0(spent)} hint={`en el mes elegido`} />
-        <Kpi label="Disponible en tu sobre" value={mxn0(balance)} tone={balance < 0 ? 'bad' : 'good'} hint="Lo no gastado se acumula" />
+        <Kpi label="Te queda para gastar" value={mxn0(balance)} tone={balance < 0 ? 'bad' : 'good'} hint="Lo no gastado se acumula" />
         <Kpi label="Apartado este mes" value={mxn0(allocatedIn(D, env.id, month))} hint={`de ${mxn0(monthly)}`} />
         <div className="kpi" style={{ gridColumn: 'span 2' }}>
           <div className="l">Uso del mes</div>
@@ -41,7 +41,7 @@ export default function Personal() {
           <div className="h">{Object.entries(byCat).map(([c, v]) => `${c} ${mxn0(v)}`).join(' · ') || 'Sin gastos este mes'}</div>
         </div>
       </div>
-      {balance < 0 && <div className="callout bad">Gastaste más de lo que tenías apartado en tu sobre personal.</div>}
+      {balance < 0 && <div className="callout bad">Gastaste más de lo que tenías apartado para tus gastos.</div>}
 
       <div className="filters" style={{ marginTop: 22 }}>
         <label className="f">Mes<input type="month" value={month} onChange={(e) => setMonth(e.target.value || today().slice(0, 7))} /></label>

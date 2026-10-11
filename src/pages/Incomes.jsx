@@ -36,7 +36,7 @@ export default function Incomes({ ctx }) {
               right={mxn(i.amount)}
               actions={<button className="link" onClick={() => remove(i)}>Eliminar</button>}>
               {reparto.length > 0 && <div className="note" style={{ marginTop: 4 }}>{reparto.map((r) => `${r.n} ${mxn0(r.v)}`).join(' · ')}</div>}
-              {i.type === 'adjustment' && <div className="note" style={{ marginTop: 4 }}>Queda como dinero sin asignar</div>}
+              {i.type === 'adjustment' && <div className="note" style={{ marginTop: 4 }}>Queda como dinero sin destino</div>}
             </Item>
           )
         })}

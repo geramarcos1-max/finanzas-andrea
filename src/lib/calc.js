@@ -6,11 +6,11 @@ export const r2 = (n) => cents(n) / 100
 const amt = (x) => Number(x.amount) || 0
 
 export const GROUPS = {
-  obligations: 'Gastos fijos y deudas',
-  emergency: 'Fondo de emergencia',
-  personal: 'Gastos personales',
-  goals: 'Metas de ahorro',
-  longterm: 'Ahorro a largo plazo',
+  obligations: 'Pagos fijos y deudas',
+  emergency: 'Colchón para imprevistos',
+  personal: 'Tu dinero para gastar',
+  goals: 'Tus metas',
+  longterm: 'Ahorro para el futuro',
 }
 export const DEFAULT_PRIORITY = ['obligations', 'emergency', 'personal', 'goals', 'longterm']
 

@@ -4,18 +4,19 @@ import { useData } from '../lib/DataContext'
 import { allocatedIn, ledgerOf, totals } from '../lib/calc'
 import { fmtDate, mxn, mxn0, pct, today } from '../lib/format'
 import { ExpenseModal, MoveModal } from '../flows'
-import { Bar, Empty, FormModal, Item, Kpi, PageHead, confirmDel, run } from '../ui'
+import { Link } from 'react-router-dom'
+import { Bar, Empty, FormModal, Item, Kpi, PageHead, confirmDel, opts, run } from '../ui'
 
 // Fondo de emergencia y ahorro a largo plazo (mismo comportamiento, distinto texto)
 const TEXT = {
   emergency: {
-    title: 'Fondo de emergencia',
-    sub: (e, pctLT) => `Cada mes se apartan ${mxn0(e.monthly_amount)} para emergencias.`,
+    title: 'Colchón para imprevistos',
+    sub: (e, pctLT) => `Cada mes se apartan ${mxn0(e.monthly_amount)} para imprevistos.`,
     use: 'Usé del fondo', useTitle: 'Usar dinero del fondo',
   },
   longterm: {
-    title: 'Ahorro a largo plazo',
-    sub: (e, pctLT) => `Dinero sin fecha de uso. Recibe el ${pctLT}% de cada ingreso y todo lo que sobre después de cubrir tus sobres.`,
+    title: 'Ahorro para el futuro',
+    sub: (e, pctLT) => `Dinero sin fecha de uso. Recibe el ${pctLT}% de cada ingreso y todo lo que sobra después de cubrir lo demás.`,
     use: 'Retiré para gastar', useTitle: 'Retirar para gastar',
   },
 }
@@ -39,6 +40,7 @@ export default function Savings({ kind }) {
 
   return (
     <>
+      <Link to="/ahorros" className="note">← Mis ahorros</Link>
       <PageHead title={tx.title} sub={tx.sub(env, D.settings.longterm_pct)}>
         <button className="btn" onClick={() => setModal('move')}>Mover dinero</button>
         <button className="btn pri" onClick={() => setModal('use')}>{tx.use}</button>
@@ -64,10 +66,11 @@ export default function Savings({ kind }) {
         <FormModal title={`Ajustes de ${tx.title.toLowerCase()}`} onClose={() => setEdit(false)}
           fields={[
             { key: 'monthly_amount', label: 'Aporte mensual', type: 'money', required: kind === 'emergency' },
+            { key: 'account_id', label: '¿Dónde guardas este dinero?', type: 'select', options: [{ value: '', label: 'En la cuenta donde me llega' }, ...opts(D.accounts.filter((a) => !a.archived))] },
             ...(kind === 'emergency' ? [{ key: 'target_amount', label: 'Meta del fondo (opcional)', type: 'money', placeholder: 'Ej. 50,000' }] : []),
           ]}
-          initial={{ monthly_amount: String(env.monthly_amount || ''), target_amount: env.target_amount ? String(env.target_amount) : '' }}
-          onSave={async (v) => (await run(supabase.from('envelopes').update({ monthly_amount: v.monthly_amount || 0, ...(kind === 'emergency' ? { target_amount: v.target_amount > 0 ? v.target_amount : null } : {}) }).eq('id', env.id), D.reload, 'Guardado')) ? true : 'No se pudo guardar'} />
+          initial={{ monthly_amount: String(env.monthly_amount || ''), target_amount: env.target_amount ? String(env.target_amount) : '', account_id: env.account_id || '' }}
+          onSave={async (v) => (await run(supabase.from('envelopes').update({ monthly_amount: v.monthly_amount || 0, account_id: v.account_id || null, ...(kind === 'emergency' ? { target_amount: v.target_amount > 0 ? v.target_amount : null } : {}) }).eq('id', env.id), D.reload, 'Guardado')) ? true : 'No se pudo guardar'} />
       )}
     </>
   )

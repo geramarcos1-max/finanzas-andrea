@@ -4,7 +4,8 @@ import { useData } from '../lib/DataContext'
 import { debtInfo, totals } from '../lib/calc'
 import { mxn, mxn0 } from '../lib/format'
 import { MoveModal, removeEnvelope } from '../flows'
-import { Bar, Empty, FormModal, Item, Kpi, PageHead, Pill, run } from '../ui'
+import { Link } from 'react-router-dom'
+import { Bar, Empty, FormModal, Item, Kpi, PageHead, Pill, opts, run } from '../ui'
 
 export default function Fixed() {
   const D = useData()
@@ -20,25 +21,27 @@ export default function Fixed() {
     { key: 'name', label: 'Concepto', type: 'text', required: true, placeholder: 'Ej. Renta' },
     { key: 'monthly_amount', label: 'Monto mensual', type: 'money', required: true },
     { key: 'due_day', label: 'Día de pago (1-31)', type: 'number', min: 1, max: 31, placeholder: 'Opcional' },
+    { key: 'account_id', label: '¿Dónde guardas este dinero?', type: 'select', options: [{ value: '', label: 'En la cuenta donde me llega' }, ...opts(D.accounts.filter((a) => !a.archived))] },
     { key: 'debt_total', label: 'Monto total de la deuda', type: 'money', show: (v) => v.kind === 'debt', placeholder: 'Opcional' },
     { key: 'debt_paid_before', label: 'Ya pagado antes de usar la app', type: 'money', show: (v) => v.kind === 'debt', placeholder: '0' },
   ]
   const save = (editing) => async (v) => {
     const row = {
-      kind: v.kind, name: v.name.trim(), monthly_amount: v.monthly_amount, due_day: v.due_day ? Number(v.due_day) : null,
+      kind: v.kind, name: v.name.trim(), monthly_amount: v.monthly_amount, due_day: v.due_day ? Number(v.due_day) : null, account_id: v.account_id || null,
       debt_total: v.kind === 'debt' && v.debt_total > 0 ? v.debt_total : null, debt_paid_before: v.kind === 'debt' ? v.debt_paid_before || 0 : 0,
     }
     const q = editing ? supabase.from('envelopes').update(row).eq('id', editing.id) : supabase.from('envelopes').insert(row)
     return (await run(q, D.reload, 'Guardado')) ? true : 'No se pudo guardar'
   }
   const initialOf = (e) => ({
-    kind: e.kind, name: e.name, monthly_amount: String(e.monthly_amount || ''), due_day: e.due_day || '',
+    kind: e.kind, name: e.name, monthly_amount: String(e.monthly_amount || ''), due_day: e.due_day || '', account_id: e.account_id || '',
     debt_total: e.debt_total ? String(e.debt_total) : '', debt_paid_before: e.debt_paid_before ? String(e.debt_paid_before) : '',
   })
 
   return (
     <>
-      <PageHead title="Gastos fijos y deudas" sub="Lo que pagas cada mes sin falta. Reciben dinero del reparto antes que tus gastos personales o tus metas (puedes cambiar el orden en Configuración).">
+      <Link to="/pagos" className="note">← Pagos del mes</Link>
+      <PageHead title="Pagos fijos y deudas" sub="Lo que pagas cada mes sin falta (renta, carro, servicios…). Son lo primero que se aparta cuando te llega dinero.">
         <button className="btn pri" onClick={() => setModal({})}>+ Agregar</button>
       </PageHead>
       <div className="kpis">

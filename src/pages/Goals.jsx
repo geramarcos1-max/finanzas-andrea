@@ -4,7 +4,8 @@ import { useData } from '../lib/DataContext'
 import { envelopeStats, neededFor, totals } from '../lib/calc'
 import { fmtDate, mxn, mxn0, pct, today } from '../lib/format'
 import { ExpenseModal, MoveModal, removeEnvelope } from '../flows'
-import { Bar, Empty, FormModal, Item, Kpi, PageHead, Pill, run } from '../ui'
+import { Link } from 'react-router-dom'
+import { Bar, Empty, FormModal, Item, Kpi, PageHead, Pill, opts, run } from '../ui'
 
 export default function Goals() {
   const D = useData()
@@ -33,16 +34,18 @@ export default function Goals() {
     { key: 'target_amount', label: 'Monto de la meta', type: 'money', required: true },
     { key: 'target_date', label: 'Fecha límite', type: 'date' },
     { key: 'monthly_amount', label: 'Apartado mensual fijo (solo si no hay fecha)', type: 'money', placeholder: 'Opcional' },
+    { key: 'account_id', label: '¿Dónde guardas este dinero?', type: 'select', options: [{ value: '', label: 'En la cuenta donde me llega' }, ...opts(D.accounts.filter((a) => !a.archived))] },
   ]
   const save = (editing) => async (v) => {
-    const row = { kind: 'goal', name: v.name.trim(), target_amount: v.target_amount, target_date: v.target_date || null, monthly_amount: v.monthly_amount || 0 }
+    const row = { kind: 'goal', name: v.name.trim(), target_amount: v.target_amount, target_date: v.target_date || null, monthly_amount: v.monthly_amount || 0, account_id: v.account_id || null }
     const q = editing ? supabase.from('envelopes').update(row).eq('id', editing.id) : supabase.from('envelopes').insert(row)
     return (await run(q, D.reload, 'Guardado')) ? true : 'No se pudo guardar'
   }
 
   return (
     <>
-      <PageHead title="Ahorros con meta" sub="Viajes, imprevistos, proyectos y compras, cada uno con su monto, fecha límite y avance. El sistema calcula cuánto apartar cada mes y lo incluye en el reparto de tus ingresos.">
+      <Link to="/ahorros" className="note">← Mis ahorros</Link>
+      <PageHead title="Mis metas" sub="Algo que quieres lograr, con su monto y fecha: un viaje, una compra, un proyecto. Yo calculo cuánto apartar cada mes.">
         <button className="btn pri" onClick={() => setModal({})}>+ Nueva meta</button>
       </PageHead>
       <div className="kpis">
@@ -69,7 +72,7 @@ export default function Goals() {
         })}
       </div>
       {modal && <FormModal title={modal.editing ? 'Editar meta' : 'Nueva meta'} fields={fields} onClose={() => setModal(null)}
-        initial={modal.editing ? { name: modal.editing.name, target_amount: String(modal.editing.target_amount || ''), target_date: modal.editing.target_date || '', monthly_amount: modal.editing.monthly_amount ? String(modal.editing.monthly_amount) : '' } : {}}
+        initial={modal.editing ? { name: modal.editing.name, target_amount: String(modal.editing.target_amount || ''), target_date: modal.editing.target_date || '', monthly_amount: modal.editing.monthly_amount ? String(modal.editing.monthly_amount) : '', account_id: modal.editing.account_id || '' } : { account_id: '' }}
         onSave={save(modal.editing)} />}
       {move && <MoveModal toEnvId={move} onClose={() => setMove(null)} />}
       {use && <ExpenseModal envId={use} title={`Usar dinero de “${D.envelopes.find((e) => e.id === use)?.name}”`} onClose={() => setUse(null)} />}

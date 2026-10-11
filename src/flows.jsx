@@ -90,6 +90,39 @@ export function PaymentFormModal({ editing, onClose, onSaved }) {
   )
 }
 
+// ---------- Crear / editar una meta (se usa en "Mis metas" y al repartir lo que sobra) ----------
+export function GoalFormModal({ editing, onClose, onSaved }) {
+  const D = useData()
+  const fields = [
+    { key: 'name', label: '¿Qué quieres lograr?', type: 'text', required: true, placeholder: 'Ej. Viaje a Oaxaca, Colchón…' },
+    { key: 'target_amount', label: 'Monto de la meta', type: 'money', required: true },
+    { key: 'target_date', label: 'Fecha límite (opcional)', type: 'date' },
+    { key: 'monthly_amount', label: 'Apartado mensual fijo (solo si no hay fecha)', type: 'money', placeholder: 'Opcional' },
+    { key: 'account_id', label: '¿Dónde guardas este dinero?', type: 'select', options: [{ value: '', label: 'En la cuenta donde me llega' }, ...opts(D.accounts.filter((a) => !a.archived))] },
+  ]
+  const initial = editing
+    ? { name: editing.name, target_amount: String(editing.target_amount || ''), target_date: editing.target_date || '', monthly_amount: editing.monthly_amount ? String(editing.monthly_amount) : '', account_id: editing.account_id || '' }
+    : { account_id: '' }
+
+  async function save(v) {
+    const row = { kind: 'goal', name: v.name.trim(), target_amount: v.target_amount, target_date: v.target_date || null, monthly_amount: v.monthly_amount || 0, account_id: v.account_id || null }
+    const { data, error } = editing
+      ? await supabase.from('envelopes').update(row).eq('id', editing.id)
+      : await supabase.from('envelopes').insert(row).select('id').single()
+    if (error) return error.message
+    await D.reload()
+    toast('Meta guardada ✓')
+    onSaved?.(data?.id || editing?.id)
+    return true
+  }
+
+  return (
+    <FormModal title={editing ? 'Editar meta' : 'Nueva meta'}
+      sub={editing ? null : 'Una meta es algo que quieres lograr, con su monto. Yo te digo cuánto abonar cada mes.'}
+      fields={fields} initial={initial} onSave={save} onClose={onClose} />
+  )
+}
+
 // ---------- "Gasté algo": lo más rápido posible ----------
 export function QuickExpense({ onClose }) {
   const D = useData()
@@ -258,6 +291,7 @@ export function IncomeFlow({ mode = 'income', onClose }) {
   const [busy, setBusy] = useState(false)
   const [incomeId, setIncomeId] = useState(null)
   const [addPay, setAddPay] = useState(false)
+  const [addGoal, setAddGoal] = useState(false)
   const set = (k) => (v) => setF((s) => ({ ...s, [k]: v }))
   const amount = toNum(f.amount)
   const month = f.date.slice(0, 7)
@@ -480,9 +514,19 @@ export function IncomeFlow({ mode = 'income', onClose }) {
             <MoneyInput value={inv} onChange={setInv} placeholder="$ 0" />
           </label>
         </div>
+        {goalsLeft.length === 0 && (
+          <div className="card" style={{ marginTop: 14, background: 'var(--accent-soft)', borderColor: 'transparent' }}>
+            <b>🎯 ¿Tienes algo que quieres lograr?</b>
+            <p className="note" style={{ margin: '4px 0 10px' }}>Un viaje, una compra, un colchón para imprevistos… Crea una meta y abónale aquí mismo.</p>
+            <button type="button" className="btn pri" onClick={() => setAddGoal(true)}>+ Crear una meta</button>
+          </div>
+        )}
         {goalsLeft.length > 0 && (
           <>
-            <div className="grp" style={{ marginTop: 14 }}>Abonar a mis metas</div>
+            <div className="grp" style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Abonar a mis metas</span>
+              <button type="button" className="link edit" onClick={() => setAddGoal(true)}>+ Nueva meta</button>
+            </div>
             <div className="form" style={{ marginTop: 8 }}>
               {goalsLeft.map((x) => (
                 <label className="f" key={x.e.id}>🎯 {x.e.name}
@@ -492,10 +536,10 @@ export function IncomeFlow({ mode = 'income', onClose }) {
             </div>
           </>
         )}
-        {goalsLeft.length === 0 && <p className="note" style={{ marginTop: 10 }}>¿Tienes algo que quieres lograr (un viaje, una compra)? Crea una meta en <b>Mis metas</b> y podrás abonarle aquí.</p>}
         <div className={`callout ${toPlace === 0 ? 'good' : toPlace > 0 ? 'warn' : 'bad'}`} style={{ marginTop: 14 }}>
           {toPlace === 0 ? `✅ Repartiste todo: ${mxn(rest)}` : toPlace > 0 ? `Te faltan ${mxn(toPlace)} por repartir (de ${mxn(rest)}).` : `Te pasaste por ${mxn(-toPlace)}.`}
         </div>
+        {addGoal && <GoalFormModal onClose={() => setAddGoal(false)} />}
       </Modal>
     )
   }

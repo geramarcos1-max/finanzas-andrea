@@ -3,9 +3,9 @@ import { supabase } from '../lib/supabase'
 import { useData } from '../lib/DataContext'
 import { envelopeStats, neededFor, totals } from '../lib/calc'
 import { fmtDate, mxn, mxn0, pct, today } from '../lib/format'
-import { ExpenseModal, MoveModal, removeEnvelope } from '../flows'
+import { ExpenseModal, GoalFormModal, MoveModal, removeEnvelope } from '../flows'
 import { Link } from 'react-router-dom'
-import { Bar, Empty, FormModal, Item, Kpi, PageHead, Pill, opts, run } from '../ui'
+import { Bar, Empty, Item, Kpi, PageHead, Pill } from '../ui'
 
 export default function Goals() {
   const D = useData()
@@ -27,19 +27,6 @@ export default function Goals() {
     if (g.target_date < today()) return ['Vencida', 'bad']
     const months = (new Date(g.target_date + 'T00:00') - new Date()) / 2629800000
     return months <= 1 ? ['Vence este mes', 'warn'] : ['En camino', 'good']
-  }
-
-  const fields = [
-    { key: 'name', label: 'Concepto', type: 'text', required: true, placeholder: 'Ej. Viaje a Oaxaca' },
-    { key: 'target_amount', label: 'Monto de la meta', type: 'money', required: true },
-    { key: 'target_date', label: 'Fecha límite', type: 'date' },
-    { key: 'monthly_amount', label: 'Apartado mensual fijo (solo si no hay fecha)', type: 'money', placeholder: 'Opcional' },
-    { key: 'account_id', label: '¿Dónde guardas este dinero?', type: 'select', options: [{ value: '', label: 'En la cuenta donde me llega' }, ...opts(D.accounts.filter((a) => !a.archived))] },
-  ]
-  const save = (editing) => async (v) => {
-    const row = { kind: 'goal', name: v.name.trim(), target_amount: v.target_amount, target_date: v.target_date || null, monthly_amount: v.monthly_amount || 0, account_id: v.account_id || null }
-    const q = editing ? supabase.from('envelopes').update(row).eq('id', editing.id) : supabase.from('envelopes').insert(row)
-    return (await run(q, D.reload, 'Guardado')) ? true : 'No se pudo guardar'
   }
 
   return (
@@ -71,9 +58,7 @@ export default function Goals() {
           )
         })}
       </div>
-      {modal && <FormModal title={modal.editing ? 'Editar meta' : 'Nueva meta'} fields={fields} onClose={() => setModal(null)}
-        initial={modal.editing ? { name: modal.editing.name, target_amount: String(modal.editing.target_amount || ''), target_date: modal.editing.target_date || '', monthly_amount: modal.editing.monthly_amount ? String(modal.editing.monthly_amount) : '', account_id: modal.editing.account_id || '' } : { account_id: '' }}
-        onSave={save(modal.editing)} />}
+      {modal && <GoalFormModal editing={modal.editing} onClose={() => setModal(null)} />}
       {move && <MoveModal toEnvId={move} onClose={() => setMove(null)} />}
       {use && <ExpenseModal envId={use} title={`Usar dinero de “${D.envelopes.find((e) => e.id === use)?.name}”`} onClose={() => setUse(null)} />}
     </>

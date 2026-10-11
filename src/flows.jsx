@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import { useData } from './lib/DataContext'
 import { GROUPS, cents, propose, r2, totals } from './lib/calc'
@@ -72,6 +73,7 @@ export function MoveModal({ toEnvId, fromEnvId, onClose }) {
 // ---------- Flujo de ingreso: datos -> confirmar -> reparto ----------
 export function IncomeFlow({ mode = 'income', onClose }) {
   const D = useData()
+  const nav = useNavigate()
   const t = totals(D)
   const sources = D.income_sources.filter((s) => !s.archived)
   const accounts = D.accounts.filter((a) => !a.archived)
@@ -110,6 +112,17 @@ export function IncomeFlow({ mode = 'income', onClose }) {
 
   const Steps = () => <div className="steps">{[1, 2, 3].map((i) => <span key={i} className={i <= step ? 'on' : ''} />)}</div>
   const src = D.income_sources.find((s) => s.id === f.source)?.name
+
+  if (step === 1 && !assign && !accounts.length) {
+    return (
+      <Modal onClose={onClose}
+        footer={<><button className="btn" onClick={onClose}>Cancelar</button>
+          <button className="btn pri" onClick={() => { onClose(); nav('/cuentas') }}>Crear mi primera cuenta</button></>}>
+        <h3>Primero necesitas una cuenta</h3>
+        <p className="note">Un ingreso tiene que llegar a algún lado: tu cuenta de banco o tu efectivo. Créala con su saldo de hoy y regresa a registrar tu ingreso.</p>
+      </Modal>
+    )
+  }
 
   if (step === 1) {
     return (

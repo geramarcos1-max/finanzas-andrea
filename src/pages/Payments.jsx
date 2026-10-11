@@ -4,8 +4,8 @@ import { useData } from '../lib/DataContext'
 import { debtInfo, paymentsOf } from '../lib/calc'
 import { dueText } from '../lib/friendly'
 import { mxn, mxn0, pct, today } from '../lib/format'
-import { ExpenseModal, removeEnvelope } from '../flows'
-import { Bar, Empty, FormModal, Item, Kpi, PageHead, Pill, run } from '../ui'
+import { ExpenseModal, PaymentFormModal, removeEnvelope } from '../flows'
+import { Bar, Empty, Item, Kpi, PageHead, Pill, run } from '../ui'
 
 // "Mis pagos": se configuran los pagos que se repiten cada mes y funcionan como checklist.
 export default function Payments() {
@@ -37,27 +37,6 @@ export default function Payments() {
       .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0]
     if (last) await run(supabase.from('transactions').delete().eq('id', last.id), D.reload, 'Pago deshecho')
   }
-
-  const fields = [
-    { key: 'kind', label: 'Tipo', type: 'select', options: [{ value: 'fixed', label: 'Pago fijo (renta, servicios, suscripción…)' }, { value: 'debt', label: 'Deuda con saldo (carro, préstamo…)' }] },
-    { key: 'name', label: '¿Qué pagas?', type: 'text', required: true, placeholder: 'Ej. Renta' },
-    { key: 'monthly_amount', label: 'Monto al mes', type: 'money', required: true },
-    { key: 'due_day', label: 'Día del mes en que se paga (1-31)', type: 'number', min: 1, max: 31, placeholder: 'Opcional' },
-    { key: 'debt_total', label: 'Monto total de la deuda', type: 'money', show: (v) => v.kind === 'debt', placeholder: 'Opcional' },
-    { key: 'debt_paid_before', label: 'Ya pagado antes de usar la app', type: 'money', show: (v) => v.kind === 'debt', placeholder: '0' },
-  ]
-  const save = (editing) => async (v) => {
-    const row = {
-      kind: v.kind, name: v.name.trim(), monthly_amount: v.monthly_amount, due_day: v.due_day ? Number(v.due_day) : null,
-      debt_total: v.kind === 'debt' && v.debt_total > 0 ? v.debt_total : null, debt_paid_before: v.kind === 'debt' ? v.debt_paid_before || 0 : 0,
-    }
-    const q = editing ? supabase.from('envelopes').update(row).eq('id', editing.id) : supabase.from('envelopes').insert(row)
-    return (await run(q, D.reload, 'Guardado')) ? true : 'No se pudo guardar'
-  }
-  const initialOf = (e) => ({
-    kind: e.kind, name: e.name, monthly_amount: String(e.monthly_amount || ''), due_day: e.due_day || '',
-    debt_total: e.debt_total ? String(e.debt_total) : '', debt_paid_before: e.debt_paid_before ? String(e.debt_paid_before) : '',
-  })
 
   return (
     <>
@@ -105,8 +84,7 @@ export default function Payments() {
       {pay && <ExpenseModal envId={pay.e.id} noCheck title={`Pagar ${pay.e.name}`}
         prefill={{ date: month === MES ? today() : `${month}-01`, amount: String(pay.need), note: pay.e.name }}
         onClose={() => setPay(null)} />}
-      {modal && <FormModal title={modal.editing ? 'Editar pago' : 'Nuevo pago'} fields={fields}
-        initial={modal.editing ? initialOf(modal.editing) : { kind: 'fixed' }} onSave={save(modal.editing)} onClose={() => setModal(null)} />}
+      {modal && <PaymentFormModal editing={modal.editing} onClose={() => setModal(null)} />}
     </>
   )
 }

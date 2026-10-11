@@ -94,6 +94,7 @@ export default function Home({ ctx }) {
           {bills.length > 4 && <Link to="/pagos" className="note" style={{ padding: 10 }}>Ver los {bills.length - 4} pagos restantes →</Link>}
         </div>
       )}
+      <p style={{ margin: '12px 0 0' }}><button className="btn" onClick={ctx.openPayment}>+ Agregar un pago</button></p>
 
       <h2>Mis ahorros</h2>
       <div className="saves">

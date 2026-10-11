@@ -53,6 +53,43 @@ function NeedAccount({ title, onClose }) {
   )
 }
 
+// ---------- Agregar / editar un pago recurrente (el mismo formulario se usa en "Mis pagos" y al registrar dinero) ----------
+export function PaymentFormModal({ editing, onClose, onSaved }) {
+  const D = useData()
+  const fields = [
+    { key: 'kind', label: 'Tipo', type: 'select', options: [{ value: 'fixed', label: 'Pago fijo (renta, servicios, suscripción…)' }, { value: 'debt', label: 'Deuda con saldo (carro, préstamo…)' }] },
+    { key: 'name', label: '¿Qué pagas?', type: 'text', required: true, placeholder: 'Ej. Renta' },
+    { key: 'monthly_amount', label: 'Monto al mes', type: 'money', required: true },
+    { key: 'due_day', label: 'Día del mes en que se paga (1-31)', type: 'number', min: 1, max: 31, placeholder: 'Opcional' },
+    { key: 'debt_total', label: 'Monto total de la deuda', type: 'money', show: (v) => v.kind === 'debt', placeholder: 'Opcional' },
+    { key: 'debt_paid_before', label: 'Ya pagado antes de usar la app', type: 'money', show: (v) => v.kind === 'debt', placeholder: '0' },
+  ]
+  const initial = editing
+    ? { kind: editing.kind, name: editing.name, monthly_amount: String(editing.monthly_amount || ''), due_day: editing.due_day || '',
+        debt_total: editing.debt_total ? String(editing.debt_total) : '', debt_paid_before: editing.debt_paid_before ? String(editing.debt_paid_before) : '' }
+    : { kind: 'fixed' }
+
+  async function save(v) {
+    const row = {
+      kind: v.kind, name: v.name.trim(), monthly_amount: v.monthly_amount, due_day: v.due_day ? Number(v.due_day) : null,
+      debt_total: v.kind === 'debt' && v.debt_total > 0 ? v.debt_total : null, debt_paid_before: v.kind === 'debt' ? v.debt_paid_before || 0 : 0,
+    }
+    const { data, error } = editing
+      ? await supabase.from('envelopes').update(row).eq('id', editing.id)
+      : await supabase.from('envelopes').insert(row).select('id').single()
+    if (error) return error.message
+    await D.reload()
+    toast('Pago guardado en Mis pagos ✓')
+    onSaved?.(data?.id || editing?.id, row)
+    return true
+  }
+
+  return (
+    <FormModal title={editing ? 'Editar pago' : 'Nuevo pago'} sub={editing ? null : 'Se guarda en Mis pagos y se repite cada mes.'}
+      fields={fields} initial={initial} onSave={save} onClose={onClose} />
+  )
+}
+
 // ---------- "Gasté algo": lo más rápido posible ----------
 export function QuickExpense({ onClose }) {
   const D = useData()
@@ -218,6 +255,7 @@ export function IncomeFlow({ mode = 'income', onClose }) {
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   const [incomeId, setIncomeId] = useState(null)
+  const [addPay, setAddPay] = useState(false)
   const set = (k) => (v) => setF((s) => ({ ...s, [k]: v }))
   const amount = toNum(f.amount)
   const month = f.date.slice(0, 7)
@@ -345,7 +383,7 @@ export function IncomeFlow({ mode = 'income', onClose }) {
         sub="Marca los que vas a pagar con este dinero. Los que marques se registran como pagados."
         footer={<><button className="btn" onClick={() => { setErr(''); setStep('form') }}>Atrás</button><button className="btn pri big-action" onClick={afterPagos}>Continuar</button></>}>
         <Dots n={2} />
-        {items.length === 0 ? <p className="note">No tienes pagos pendientes. Puedes agregarlos en <b>Mis pagos</b>.</p> : (
+        {items.length === 0 ? <p className="note">Aún no tienes pagos pendientes este mes. Si tienes alguno (renta, carro, celular…), agrégalo aquí y quedará guardado en <b>Mis pagos</b>.</p> : (
           <>
             {pays.length > 0 && (
               <p style={{ margin: '4px 0' }}><button className="link edit" onClick={() => setPicked((p) => ({ ...p, ...Object.fromEntries(items.filter((i) => i.group === 'pay').map((i) => [i.key, { on: true, amount: String(i.need) }])) }))}>Seleccionar todos los pagos</button></p>
@@ -362,10 +400,13 @@ export function IncomeFlow({ mode = 'income', onClose }) {
             })}
           </>
         )}
+        <p style={{ margin: '10px 0 0' }}><button type="button" className="btn" onClick={() => setAddPay(true)}>+ Agregar un pago</button></p>
         <div className="callout" style={{ marginTop: 12 }}>
           Pagarás <b>{mxn(chosenTotal)}</b> · Te quedan <b className={left < 0 ? 'bad-t' : ''}>{mxn(left)}</b>
         </div>
         {err && <p className="note bad-t" role="alert">{err}</p>}
+        {addPay && <PaymentFormModal onClose={() => setAddPay(false)}
+          onSaved={(newId, row) => newId && setPicked((p) => ({ ...p, ['pay:' + newId]: { on: true, amount: String(row.monthly_amount) } }))} />}
       </Modal>
     )
   }
@@ -462,6 +503,7 @@ export function AddMenu({ ctx, onClose }) {
         <button className="bigbtn" onClick={go(ctx.openIncome)}><span>💰</span><div><b>Me llegó dinero</b><div className="note">Sueldo u otro ingreso</div></div></button>
         <button className="bigbtn" onClick={go(ctx.openExpense)}><span>🧾</span><div><b>Gasté algo</b><div className="note">Café, comida, compras…</div></div></button>
         <button className="bigbtn" onClick={() => { onClose(); nav('/pagos') }}><span>✅</span><div><b>Pagué algo de mis pagos</b><div className="note">Renta, carro, servicios…</div></div></button>
+        <button className="bigbtn" onClick={go(ctx.openPayment)}><span>📌</span><div><b>Agregar un pago nuevo</b><div className="note">Algo que pagas cada mes</div></div></button>
       </div>
     </Modal>
   )

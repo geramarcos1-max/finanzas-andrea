@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import { DataProvider, useData } from './lib/DataContext'
-import { AddMenu, BankStepsModal, IncomeFlow, QuickExpense } from './flows'
+import { AddMenu, BankStepsModal, IncomeFlow, PaymentFormModal, QuickExpense } from './flows'
 import { NAV } from './nav'
 import { Toaster } from './ui'
 import Login from './pages/Login'
@@ -35,7 +35,7 @@ function Shell({ session }) {
 
   const ctx = {
     openIncome: () => setFlow('income'), openAssign: () => setFlow('assign'), openExpense: () => setFlow('expense'),
-    openBank: () => setFlow('bank'), openMenu: () => setFlow('menu'),
+    openBank: () => setFlow('bank'), openMenu: () => setFlow('menu'), openPayment: () => setFlow('payment'),
   }
   const close = () => setFlow(null)
   return (
@@ -89,6 +89,7 @@ function Shell({ session }) {
       {flow === 'expense' && <QuickExpense onClose={close} />}
       {flow === 'bank' && <BankStepsModal onClose={close} />}
       {flow === 'menu' && <AddMenu ctx={ctx} onClose={close} />}
+      {flow === 'payment' && <PaymentFormModal onClose={close} />}
     </div>
   )
 }

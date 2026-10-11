@@ -7,15 +7,17 @@ import { catEmoji } from '../lib/friendly'
 import { mxn, mxn0, today } from '../lib/format'
 import { Bar, Empty, Kpi, MoneyInput, PageHead, run, toNum, toast } from '../ui'
 
-function Row({ cat, budget, spent, draft, room, onDraft, onCommit }) {
-  const value = draft !== undefined ? draft : budget ? String(budget) : ''
-  const typed = toNum(value)
+// Una categoría: se ve su límite y se puede Editar / Quitar; al editar aparece Guardar / Cancelar.
+function Row({ cat, budget, spent, draft, room, busy, onStart, onDraft, onSave, onCancel, onRemove }) {
+  const editing = draft !== undefined
+  const typed = toNum(draft ?? '')
   const has = budget > 0
   const ratio = has ? spent / budget : 0
   const tone = ratio > 1 ? 'bad' : ratio > 0.8 ? 'warn' : 'good'
-  const over = r2(typed - room)   // cuánto se pasa esta categoría de lo que aún se puede repartir
+  const over = editing ? r2(typed - room) : 0   // cuánto se pasa esta categoría de lo que aún se puede repartir
+  const keys = (e) => { if (e.key === 'Enter' && over <= 0) onSave(cat.id); if (e.key === 'Escape') onCancel(cat.id) }
   return (
-    <div className="item" style={{ flexWrap: 'wrap' }}>
+    <div className="item" style={{ flexWrap: 'wrap', alignItems: 'flex-start' }}>
       <span style={{ fontSize: 26, width: 34, textAlign: 'center' }}>{catEmoji(cat.name)}</span>
       <div className="main" style={{ minWidth: 150 }}>
         <div className="t">{cat.name}</div>
@@ -25,11 +27,30 @@ function Row({ cat, budget, spent, draft, room, onDraft, onCommit }) {
         {has && <div style={{ marginTop: 6 }}><Bar value={spent} max={budget} tone={tone} /></div>}
         {over > 0 && <div className="note bad-t" role="alert" style={{ marginTop: 4 }}>⚠️ Te pasas por {mxn(over)}. Aquí puedes poner máximo {mxn(Math.max(0, room))}.</div>}
       </div>
-      <div style={{ width: 140 }}>
-        <MoneyInput value={value} onChange={(v) => onDraft(cat.id, v)} placeholder="Sin límite" aria-invalid={over > 0}
-          style={over > 0 ? { borderColor: 'var(--bad)', color: 'var(--bad)' } : undefined}
-          onBlur={() => onCommit(cat.id)} />
-      </div>
+      {editing ? (
+        <div style={{ width: 230 }}>
+          <MoneyInput autoFocus value={draft} onChange={(v) => onDraft(cat.id, v)} placeholder="Sin límite" onKeyDown={keys}
+            aria-invalid={over > 0} style={over > 0 ? { borderColor: 'var(--bad)', color: 'var(--bad)' } : undefined} />
+          <div className="row" style={{ marginTop: 6, gap: 8 }}>
+            <button className="btn pri sm" disabled={over > 0 || busy} onClick={() => onSave(cat.id)}>Guardar</button>
+            <button className="btn sm" onClick={() => onCancel(cat.id)}>Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ textAlign: 'right', minWidth: 130 }}>
+          {has ? (
+            <>
+              <div className="num" style={{ fontWeight: 600, fontSize: 16 }}>{mxn0(budget)}</div>
+              <div className="acts" style={{ justifyContent: 'flex-end', marginTop: 4 }}>
+                <button className="link edit" onClick={() => onStart(cat.id, budget)}>Editar</button>
+                <button className="link" onClick={() => onRemove(cat.id)}>Quitar</button>
+              </div>
+            </>
+          ) : (
+            <button className="btn sm" onClick={() => onStart(cat.id, 0)}>+ Poner límite</button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -39,7 +60,8 @@ function Row({ cat, budget, spent, draft, room, onDraft, onCommit }) {
 export default function Budgets() {
   const D = useData()
   const MES = today().slice(0, 7)
-  const [drafts, setDrafts] = useState({})   // lo que se está escribiendo y aún no se guarda
+  const [drafts, setDrafts] = useState({})   // categorías que se están editando y lo que se escribe
+  const [busy, setBusy] = useState(false)
   const cats = D.categories.filter((c) => !c.archived && c.kind === 'expense')
   const personal = D.envelopes.find((e) => e.kind === 'personal')
   const budgetOf = (id) => Number(D.category_budgets.find((b) => b.category_id === id)?.amount) || 0
@@ -51,25 +73,33 @@ export default function Budgets() {
   const liveOf = (c) => (drafts[c.id] !== undefined ? toNum(drafts[c.id]) : budgetOf(c.id))
   const assigned = r2(cats.reduce((s, c) => s + liveOf(c), 0))       // repartido, incluyendo lo que se está escribiendo
   const free = r2(total - assigned)
-  const hasDraft = Object.keys(drafts).length > 0
+  const editingNow = Object.keys(drafts).length > 0
 
   const setDraft = (id, v) => setDrafts((d) => ({ ...d, [id]: v }))
   const clearDraft = (id) => setDrafts((d) => { const n = { ...d }; delete n[id]; return n })
+  const start = (id, current) => setDraft(id, current ? String(current) : '')
 
-  async function commit(categoryId) {
-    if (drafts[categoryId] === undefined) return
-    const amount = toNum(drafts[categoryId])
-    if (amount === budgetOf(categoryId)) return clearDraft(categoryId)
-    const others = r2(savedSum - budgetOf(categoryId))
-    if (cents(amount + others) > cents(total)) {
-      toast(`⚠️ No se guardó: te pasas del presupuesto. Aquí puedes poner máximo ${mxn(Math.max(0, r2(total - others)))}.`)
-      return   // se conserva lo escrito, en rojo, para que lo corrija
-    }
+  async function persist(categoryId, amount) {
     const q = amount > 0
       ? supabase.from('category_budgets').upsert({ category_id: categoryId, amount }, { onConflict: 'category_id' })
       : supabase.from('category_budgets').delete().eq('category_id', categoryId)
-    if (await run(q, D.reload, amount > 0 ? 'Presupuesto guardado' : 'Presupuesto quitado')) clearDraft(categoryId)
+    setBusy(true)
+    const ok = await run(q, D.reload, amount > 0 ? 'Límite guardado ✓' : 'Límite quitado')
+    setBusy(false)
+    if (ok) clearDraft(categoryId)
   }
+
+  async function save(categoryId) {
+    const amount = toNum(drafts[categoryId] ?? '')
+    if (amount === budgetOf(categoryId)) return clearDraft(categoryId)
+    const others = r2(savedSum - budgetOf(categoryId))
+    if (cents(amount + others) > cents(total)) {
+      return toast(`⚠️ No se guardó: te pasas del presupuesto. Aquí puedes poner máximo ${mxn(Math.max(0, r2(total - others)))}.`)
+    }
+    await persist(categoryId, amount)
+  }
+
+  const remove = (categoryId) => window.confirm('¿Quitar el límite de esta categoría?') && persist(categoryId, 0)
 
   return (
     <>
@@ -91,17 +121,17 @@ export default function Budgets() {
       {free < 0 && total > 0 && (
         <div className="callout bad" role="alert" style={{ position: 'sticky', top: 8, zIndex: 5 }}>
           🚨 <b>Te estás pasando de tu presupuesto.</b> Tus límites suman {mxn(assigned)} y tu presupuesto del mes es {mxn(total)}: te pasas por <b>{mxn(-free)}</b>.
-          {hasDraft ? ' Mientras no cuadre, los cambios no se guardan. Baja algún límite.' : ' Baja algún límite para que cuadre.'}
+          {editingNow ? ' Baja el monto que estás escribiendo para poder guardarlo.' : ' Edita algún límite para que cuadre.'}
         </div>
       )}
 
       <h2>Por categoría</h2>
-      <p className="note">Escribe cuánto quieres gastar como máximo en cada una. Entre todas no pueden pasar de {mxn(total)}. Déjalo vacío si no quieres límite.{' '}
+      <p className="note">Toca <b>Editar</b> o <b>+ Poner límite</b>, escribe cuánto quieres gastar como máximo y presiona <b>Guardar</b>. Entre todas no pueden pasar de {mxn(total)}.{' '}
         {total === 0 && <Link to="/personales">Ver mis gastos</Link>}</p>
       <div className="list">
         {cats.length === 0 ? <Empty>No hay categorías.</Empty> : cats.map((c) => (
-          <Row key={c.id} cat={c} budget={budgetOf(c.id)} spent={spentOf(c.id)} draft={drafts[c.id]}
-            room={r2(total - (assigned - liveOf(c)))} onDraft={setDraft} onCommit={commit} />
+          <Row key={c.id} cat={c} budget={budgetOf(c.id)} spent={spentOf(c.id)} draft={drafts[c.id]} busy={busy}
+            room={r2(total - (assigned - liveOf(c)))} onStart={start} onDraft={setDraft} onSave={save} onCancel={clearDraft} onRemove={remove} />
         ))}
       </div>
     </>

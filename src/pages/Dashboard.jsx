@@ -32,7 +32,7 @@ export default function Home({ ctx }) {
   if (T.unassigned < -0.5) todo.push({ k: 'neg', icon: '⚠️', title: 'Algo no cuadra con tus cuentas', sub: `Tus destinos suman ${mxn(-T.unassigned)} más que tu dinero real. Revisa tus saldos en Mi dinero.`, tone: 'bad', go: () => nav('/cuentas') })
   D.category_budgets.forEach((b) => {
     const cat = D.categories.find((c) => c.id === b.category_id)
-    const used = D.transactions.filter((t) => t.kind === 'expense' && t.category_id === b.category_id && t.date.startsWith(MES)).reduce((s, t) => s + Number(t.amount), 0)
+    const used = D.transactions.filter((t) => t.kind === 'expense' && t.category_id === b.category_id && t.envelope_id === personal?.id && t.date.startsWith(MES)).reduce((s, t) => s + Number(t.amount), 0)
     if (cat && Number(b.amount) > 0 && used > Number(b.amount)) {
       todo.push({ k: 'bud' + b.category_id, icon: '🧮', title: `Te pasaste en ${cat.name}`, sub: `Gastaste ${mxn(used)} de ${mxn(b.amount)} este mes`, tone: 'bad', go: () => nav('/presupuestos') })
     }

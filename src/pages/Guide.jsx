@@ -49,8 +49,10 @@ const SECTIONS = [
     body: (
       <ol>
         <li>Toca <b>“Gasté algo”</b>.</li>
-        <li>Escribe cuánto, elige el icono de en qué lo gastaste y toca <b>Guardar</b>.</li>
-        <li>La app te dice cuánto te queda para gastar.</li>
+        <li>Escribe cuánto, elige el icono de en qué lo gastaste y revisa la <b>fecha</b> (si fue otro día, cámbiala).</li>
+        <li>Si quieres, toca <b>“Agregar foto”</b> para guardar la foto del ticket o del comprobante. Solo tú y quien autorices pueden verla.</li>
+        <li>Toca <b>Guardar</b>. La app te dice cuánto te queda para gastar.</li>
+        <li>Después puedes ver la foto en <Link to="/personales">Mis gastos</Link>, tocando <b>“📎 Foto”</b> en ese gasto.</li>
       </ol>
     ),
   },

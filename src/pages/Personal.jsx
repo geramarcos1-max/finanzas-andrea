@@ -3,12 +3,14 @@ import { supabase } from '../lib/supabase'
 import { useData } from '../lib/DataContext'
 import { allocatedIn, spentIn, totals } from '../lib/calc'
 import { fmtDate, mxn, mxn0, pct, today } from '../lib/format'
-import { ExpenseModal } from '../flows'
+import { ExpenseModal, ReceiptView } from '../flows'
+import { removeReceipt } from '../lib/receipts'
 import { Bar, Empty, Item, Kpi, PageHead, Pill, confirmDel, run } from '../ui'
 
 export default function Personal() {
   const D = useData()
   const [modal, setModal] = useState(null)
+  const [photo, setPhoto] = useState(null)
   const [month, setMonth] = useState(today().slice(0, 7))
   const env = D.envelopes.find((e) => e.kind === 'personal')
   const T = totals(D)
@@ -24,7 +26,9 @@ export default function Personal() {
   list.forEach((t) => { const n = D.categories.find((c) => c.id === t.category_id)?.name || 'Otro'; byCat[n] = (byCat[n] || 0) + Number(t.amount) })
 
   async function remove(t) {
-    if (confirmDel('este gasto')) await run(supabase.from('transactions').delete().eq('id', t.id), D.reload, 'Eliminado')
+    if (!confirmDel('este gasto')) return
+    const ok = await run(supabase.from('transactions').delete().eq('id', t.id), D.reload, 'Eliminado')
+    if (ok && t.receipt_path) removeReceipt(t.receipt_path)   // la foto se borra junto con el gasto
   }
 
   return (
@@ -53,11 +57,13 @@ export default function Personal() {
           return (
             <Item key={t.id} title={t.note || c?.name || 'Gasto'} right={mxn(t.amount)}
               sub={<>{fmtDate(t.date)} · {D.accounts.find((a) => a.id === t.account_id)?.name} {c && <Pill>{c.name}</Pill>}</>}
-              actions={<><button className="link edit" onClick={() => setModal({ editing: t })}>Editar</button><button className="link" onClick={() => remove(t)}>Eliminar</button></>} />
+              actions={<>{t.receipt_path && <button className="link edit" onClick={() => setPhoto(t.receipt_path)}>📎 Foto</button>}
+                <button className="link edit" onClick={() => setModal({ editing: t })}>Editar</button><button className="link" onClick={() => remove(t)}>Eliminar</button></>} />
           )
         })}
       </div>
       {modal && <ExpenseModal envId={env.id} withCategory editing={modal.editing} onClose={() => setModal(null)} />}
+      {photo && <ReceiptView path={photo} onClose={() => setPhoto(null)} />}
     </>
   )
 }

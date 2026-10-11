@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useData } from '../lib/DataContext'
+import { removeAllReceipts } from '../lib/receipts'
 import { mxn0, today } from '../lib/format'
 import { FormModal, Item, PageHead, confirmDel, run, toast } from '../ui'
 
@@ -143,6 +144,7 @@ function Reset({ D }) {
         fields={[{ key: 'word', label: 'Confirmación', type: 'text', required: true, placeholder: 'BORRAR' }]}
         onSave={async (v) => {
           if (v.word.trim().toUpperCase() !== 'BORRAR') return 'Escribe BORRAR tal cual para continuar.'
+          try { await removeAllReceipts() } catch { /* si no hay fotos o falla, se sigue con el borrado */ }
           return (await run(supabase.rpc('reset_all_data'), D.reload, 'Listo, todo quedó en ceros')) ? true : 'No se pudo borrar'
         }} />}
     </>

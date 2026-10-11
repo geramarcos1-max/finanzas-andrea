@@ -125,7 +125,7 @@ export function Field({ label, children }) {
 
 // Formulario genérico dentro de un modal.
 // fields: [{key,label,type:'text'|'money'|'date'|'select'|'number', options:[{value,label}], required, placeholder, show(values)}]
-export function FormModal({ title, sub, fields, initial = {}, onSave, onClose, onDelete, saveLabel = 'Guardar', children }) {
+export function FormModal({ title, sub, fields, initial = {}, onSave, onClose, onDelete, saveLabel = 'Guardar', children, extra }) {
   const [v, setV] = useState(() => {
     const o = {}
     fields.forEach((f) => { o[f.key] = initial[f.key] ?? (f.type === 'select' ? f.options?.[0]?.value ?? '' : '') })
@@ -171,6 +171,7 @@ export function FormModal({ title, sub, fields, initial = {}, onSave, onClose, o
           )))}
         </div>
         {children}
+        {extra}
         {err && <p className="note bad-t" role="alert">{err}</p>}
         <div className="foot">
           {onDelete ? <button type="button" className="link" onClick={() => { onClose(); onDelete() }}>Eliminar</button> : <span />}

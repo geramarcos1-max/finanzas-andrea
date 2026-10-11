@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from './lib/supabase'
+import { receiptUrl, removeReceipt, uploadReceipt } from './lib/receipts'
 import { useData } from './lib/DataContext'
 import { allocatedIn, cents, envelopeStats, loanRoom, neededFor, paymentsOf, r2, totals } from './lib/calc'
 import { catEmoji, dueText } from './lib/friendly'
@@ -9,9 +10,51 @@ import { FormModal, Modal, MoneyInput, opts, run, toNum, toast } from './ui'
 
 const HOLDS = ['personal', 'goal', 'savings', 'investment']
 
+// ---------- Foto del ticket / comprobante ----------
+export function ReceiptView({ path, onClose }) {
+  const [url, setUrl] = useState(null)
+  const [err, setErr] = useState('')
+  useEffect(() => { receiptUrl(path).then(setUrl).catch((e) => setErr(e.message)) }, [path])
+  return (
+    <Modal title="Foto del gasto" onClose={onClose} footer={<button className="btn pri" onClick={onClose}>Cerrar</button>}>
+      {err ? <p className="note bad-t">{err}</p> : !url ? <p className="note">Cargando…</p> : <img src={url} alt="Foto del ticket o comprobante" style={{ width: '100%', borderRadius: 10, marginTop: 8 }} />}
+    </Modal>
+  )
+}
+
+export function ReceiptPicker({ file, onFile, existing, removed, onRemoved }) {
+  const [url, setUrl] = useState(null)
+  const [view, setView] = useState(false)
+  useEffect(() => {
+    if (!file) { setUrl(null); return }
+    const u = URL.createObjectURL(file)
+    setUrl(u)
+    return () => URL.revokeObjectURL(u)
+  }, [file])
+  const hasOld = existing && !removed && !file
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div className="f">Foto del ticket o comprobante (opcional)</div>
+      <div className="row" style={{ marginTop: 6, gap: 10 }}>
+        {url && <img src={url} alt="Vista previa" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8 }} />}
+        <label className="btn" style={{ cursor: 'pointer' }}>
+          {file || hasOld ? '📷 Cambiar foto' : '📷 Agregar foto'}
+          <input type="file" accept="image/*" hidden onChange={(e) => { onFile(e.target.files?.[0] || null); e.target.value = '' }} />
+        </label>
+        {file && <button type="button" className="link" onClick={() => onFile(null)}>Quitar</button>}
+        {hasOld && <><button type="button" className="link edit" onClick={() => setView(true)}>Ver foto actual</button><button type="button" className="link" onClick={() => onRemoved(true)}>Quitar foto</button></>}
+        {existing && removed && !file && <span className="note">Se quitará al guardar · <button type="button" className="link edit" onClick={() => onRemoved(false)}>Deshacer</button></span>}
+      </div>
+      {view && <ReceiptView path={existing} onClose={() => setView(false)} />}
+    </div>
+  )
+}
+
 // ---------- Registrar / editar un gasto (sale de una cuenta y, opcionalmente, de un apartado) ----------
 export function ExpenseModal({ envId, title = 'Registrar gasto', withCategory, editing, prefill, noCheck, onClose }) {
   const D = useData()
+  const [photo, setPhoto] = useState(null)
+  const [removeOld, setRemoveOld] = useState(false)
   const accounts = D.accounts.filter((a) => !a.archived)
   const fields = [
     { key: 'date', label: 'Fecha', type: 'date', required: true },
@@ -27,6 +70,7 @@ export function ExpenseModal({ envId, title = 'Registrar gasto', withCategory, e
 
   return (
     <FormModal title={editing ? 'Editar gasto' : title} fields={fields} initial={initial} onClose={onClose}
+      extra={<ReceiptPicker file={photo} onFile={setPhoto} existing={editing?.receipt_path} removed={removeOld} onRemoved={setRemoveOld} />}
       onSave={async (v) => {
         if (envId && !noCheck) {
           const t = totals(D)
@@ -35,9 +79,21 @@ export function ExpenseModal({ envId, title = 'Registrar gasto', withCategory, e
             return 'Ajusta el monto o primero aparta más dinero aquí.'
           }
         }
-        const row = { date: v.date, amount: v.amount, account_id: v.account_id, category_id: v.category_id || null, envelope_id: envId || null, note: v.note || null, kind: 'expense' }
+        // Foto: se sube primero; si falla se pregunta si se guarda el gasto sin ella
+        let receipt = editing?.receipt_path || null
+        let uploaded = null
+        try {
+          if (photo) { uploaded = await uploadReceipt(photo); receipt = uploaded }
+          else if (removeOld) receipt = null
+        } catch (e) {
+          if (!window.confirm(`${e.message}\n\n¿Guardar el gasto sin la foto?`)) return 'No se guardó. Intenta con otra foto.'
+        }
+        const row = { date: v.date, amount: v.amount, account_id: v.account_id, category_id: v.category_id || null, envelope_id: envId || null, note: v.note || null, kind: 'expense', receipt_path: receipt }
         const q = editing ? supabase.from('transactions').update(row).eq('id', editing.id) : supabase.from('transactions').insert(row)
-        return (await run(q, D.reload, 'Guardado')) ? true : 'No se pudo guardar'
+        const ok = await run(q, D.reload, 'Guardado')
+        if (!ok) { if (uploaded) removeReceipt(uploaded); return 'No se pudo guardar' }
+        if (editing?.receipt_path && editing.receipt_path !== receipt) removeReceipt(editing.receipt_path)   // se cambió o quitó la foto anterior
+        return true
       }} />
   )
 }
@@ -131,7 +187,7 @@ export function QuickExpense({ onClose }) {
   const personal = D.envelopes.find((e) => e.kind === 'personal')
   const cats = D.categories.filter((c) => !c.archived && c.kind === 'expense')
   const [f, setF] = useState({ amount: '', cat: cats.find((c) => c.name === 'Otro')?.id || cats[0]?.id || '', note: '', account: accounts[0]?.id || '', date: today() })
-  const [more, setMore] = useState(false)
+  const [photo, setPhoto] = useState(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
   if (!accounts.length) return <NeedAccount onClose={onClose} />
@@ -141,14 +197,22 @@ export function QuickExpense({ onClose }) {
 
   async function save() {
     if (!(amount > 0)) return setErr('Escribe cuánto gastaste.')
+    if (!f.date) return setErr('Elige la fecha del gasto.')
     if (personal && cents(amount) > cents(left) && !window.confirm(`Solo te quedan ${mxn(left)} para gastar. ¿Lo registro de todos modos?`)) return
     setBusy(true); setErr('')
+    let receipt = null
+    if (photo) {
+      try { receipt = await uploadReceipt(photo) } catch (e) {
+        if (!window.confirm(`${e.message}\n\n¿Guardar el gasto sin la foto?`)) { setBusy(false); return }
+      }
+    }
     const ok = await run(supabase.from('transactions').insert({
       kind: 'expense', date: f.date, amount, account_id: f.account, category_id: f.cat || null,
-      envelope_id: personal?.id || null, note: f.note || null,
+      envelope_id: personal?.id || null, note: f.note || null, receipt_path: receipt,
     }), D.reload)
     setBusy(false)
-    if (ok) { toast(`Listo ✓ Te quedan ${mxn(Math.max(0, r2(left - amount)))} para gastar`); onClose() }
+    if (!ok) { if (receipt) removeReceipt(receipt); return }
+    toast(`Listo ✓ Te quedan ${mxn(Math.max(0, r2(left - amount)))} para gastar`); onClose()
   }
 
   return (
@@ -168,19 +232,19 @@ export function QuickExpense({ onClose }) {
       <label className="f" style={{ marginTop: 14 }}>Nota (opcional)
         <input value={f.note} onChange={(e) => set('note')(e.target.value)} placeholder="Ej. Cine con Gera" />
       </label>
-      {more ? (
-        <div className="form" style={{ marginTop: 12 }}>
+      <div className="form" style={{ marginTop: 14 }}>
+        <label className="f">Fecha del gasto
+          <input type="date" value={f.date} max={today()} onChange={(e) => set('date')(e.target.value)} />
+        </label>
+        {accounts.length > 1 && (
           <label className="f">Pagaste con
             <select value={f.account} onChange={(e) => set('account')(e.target.value)}>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
           </label>
-          <label className="f">Fecha<input type="date" value={f.date} onChange={(e) => set('date')(e.target.value)} /></label>
-        </div>
-      ) : (
-        <p className="note" style={{ marginTop: 10 }}>
-          Se descuenta de <b>{accounts.find((a) => a.id === f.account)?.name}</b> · {f.date === today() ? 'hoy' : fmtDate(f.date)}{' '}
-          <button className="link edit" onClick={() => setMore(true)}>Cambiar</button>
-        </p>
-      )}
+        )}
+      </div>
+      {accounts.length === 1 && <p className="note" style={{ margin: '8px 0 0' }}>Se descuenta de <b>{accounts[0].name}</b></p>}
+      <ReceiptPicker file={photo} onFile={setPhoto} />
+      <div style={{ height: 6 }} />
       {personal && <p className="note">Después de este gasto te quedarán <b>{mxn(Math.max(0, r2(left - amount)))}</b> para gastar.</p>}
       {err && <p className="note bad-t" role="alert">{err}</p>}
     </Modal>

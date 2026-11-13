@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
-import { supabase } from './lib/supabase'
+import { startedInRecovery, supabase } from './lib/supabase'
 import { DataProvider, useData } from './lib/DataContext'
 import { AddMenu, BankStepsModal, IncomeFlow, PaymentFormModal, QuickExpense } from './flows'
 import { NAV } from './nav'
 import { Toaster } from './ui'
 import Login from './pages/Login'
+import NewPassword from './pages/NewPassword'
 import Home from './pages/Dashboard'
 import Reports from './pages/Reports'
 import Incomes from './pages/Incomes'
@@ -97,6 +98,7 @@ function Shell({ session }) {
 export default function App() {
   const [session, setSession] = useState(undefined)
   const [member, setMember] = useState(null)
+  const [recovery, setRecovery] = useState(startedInRecovery)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -110,7 +112,13 @@ export default function App() {
   }, [session])
 
   let body
-  if (session === undefined || (session && member === null)) body = null
+  if (session === undefined || (session && member === null && !recovery)) body = null
+  else if (recovery) {
+    // Llegó desde el correo de "olvidé mi contraseña"
+    body = session
+      ? <NewPassword email={session.user.email} onDone={() => setRecovery(false)} />
+      : <Login notice="El enlace venció o ya se usó. Pide uno nuevo con “¿Olvidaste tu contraseña?”." />
+  }
   else if (!session) body = <Login />
   else if (!member) {
     body = (
